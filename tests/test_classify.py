@@ -45,3 +45,8 @@ def test_classify_boxes_and_counts():
     assert pano.loc["p", "any_local"] == 1 and pano.loc["q", "any_mainland"] == 0
     uy = aggregate.unit_year_panel(aggregate.point_year_panel(pano.reset_index()))
     assert uy.loc[0, "share_points_local"] == 0.5 and uy.loc[0, "share_points_mainland"] == 0.5
+
+
+def test_keywords_match_across_scripts():
+    t, _, why = classify.classify_box("東北餃子館", "traditional", ["Dongbei Jiaozi"])
+    assert t == "mainland" and "kw_mainland" in why   # traditional reading of a mainland sign still matches

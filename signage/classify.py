@@ -23,10 +23,22 @@ from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
 
+try:  # optional: fold traditional into simplified so one lexicon covers both scripts
+    from zhconv import convert as _zhconvert  # type: ignore
+
+    def to_simplified(text: str) -> str:
+        return _zhconvert(text or "", "zh-cn")
+except ImportError:  # pragma: no cover
+    def to_simplified(text: str) -> str:
+        return text or ""
+
 MAINLAND_CJK = [
     "川菜", "湘菜", "东北", "東北菜", "兰州", "拉面", "沙县", "重庆", "火锅", "麻辣", "烧烤", "中国", "华为",
     "微信", "支付宝", "快递", "宿舍", "劳务", "项目部", "工程", "建设", "集团", "中建", "中铁", "中交",
-    "青山", "德龙", "镍", "园区", "物流", "国际贸易", "进出口", "招聘", "中国人", "中餐", "家常菜",
+    "青山", "德龙", "镍", "园区", "物流", "国际贸易", "进出口", "招聘", "中国人", "中餐", "家常菜", "饺子",
+    # traditional spellings of the above, for readings that come from the ch_tra model
+    "東北", "蘭州", "拉麵", "重慶", "火鍋", "燒烤", "中國", "華為", "快遞", "勞務", "項目部", "建設", "集團",
+    "中鐵", "鎳", "園區", "國際貿易", "進出口", "餃子",
 ]
 LOCAL_CJK = [
     "公会", "宗亲", "会馆", "會館", "庙", "廟", "宫", "宮", "堂", "坛", "壇", "寺", "祠", "社", "基金会",
@@ -80,8 +92,9 @@ def classify_box(text: str, script: str, latin_texts: Iterable[str]) -> Tuple[st
     elif script == "simplified":
         mainland += 0.5
         reasons.append("simplified")
-    hits_m = [k for k in MAINLAND_CJK if k in (text or "")]
-    hits_l = [k for k in LOCAL_CJK if k in (text or "")]
+    simp = to_simplified(text)
+    hits_m = [k for k in MAINLAND_CJK if to_simplified(k) in simp]
+    hits_l = [k for k in LOCAL_CJK if to_simplified(k) in simp]
     if hits_m:
         mainland += 2.0
         reasons.append("kw_mainland:" + ",".join(hits_m[:3]))

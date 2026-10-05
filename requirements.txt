@@ -14,8 +14,9 @@ lxml>=4.9            # pandas.read_html for BPS tables
 # playwright>=1.40
 
 # OCR backends: install ONE of these
-# easyocr>=1.7          # pip install easyocr   (pulls in torch)
-# paddleocr>=2.7        # pip install paddlepaddle paddleocr
+# easyocr>=1.7          # pip install easyocr   (pulls in torch; verified: dual ch_sim+ch_tra detector)
+# paddleocr>=3.0        # pip install paddlepaddle paddleocr  (3.x API wrapped, not verified live)
+# zhconv>=1.4           # recommended with any backend: folds traditional into simplified for the classify lexicon
 
 # optional: simplified vs traditional classification
 # hanzidentifier>=1.1

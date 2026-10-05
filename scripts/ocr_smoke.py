@@ -25,7 +25,7 @@ EXPECTED = {"local_trad": "local", "local_assoc": "local", "mainland_simp": "mai
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--detector", default="easyocr", choices=["easyocr", "paddleocr"])
+    ap.add_argument("--detector", default="easyocr", choices=["easyocr", "easyocr-sim", "easyocr-tra", "paddleocr"])
     a = ap.parse_args()
     det = ocr.make_detector(a.detector)
     images = pd.DataFrame([{"pano_id": p.stem, "heading": 0, "path": str(p), "status": "OK", "bytes": p.stat().st_size}

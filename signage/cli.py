@@ -146,7 +146,8 @@ def build_parser():
 
     o = sp.add_parser("ocr", help="detect text and flag CJK")
     o.add_argument("--images", default="data/images.csv")
-    o.add_argument("--detector", choices=["easyocr", "paddleocr"], default="easyocr")
+    o.add_argument("--detector", choices=["easyocr", "easyocr-sim", "easyocr-tra", "paddleocr"], default="easyocr",
+                   help="easyocr = dual simplified+traditional models (recommended)")
     o.add_argument("--gpu", action="store_true")
     o.add_argument("--min-conf", type=float, default=0.3)
     o.add_argument("--limit", type=int, default=None)

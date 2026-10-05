@@ -26,7 +26,7 @@ points.csv  panos.csv            images/   ocr_*.csv  *_classified  panel_*.csv 
 | `discover` | Nearest panorama per point. `jsapi` backend also returns historical panoramas (the Maps JS API `time` array, undocumented) | `GOOGLE_MAPS_API_KEY`; Playwright + Chromium for `jsapi` |
 | `cost` | Estimated bill before fetching | |
 | `fetch` | Static API images at bearing ±90° (both sides of the street) | API key; billed per image |
-| `ocr` | Scene-text detection, flags boxes containing CJK ideographs, simplified/traditional if `hanzidentifier` is installed | `easyocr` or `paddleocr` |
+| `ocr` | Scene-text detection, flags boxes containing CJK ideographs. Default detector runs EasyOCR's simplified and traditional models and keeps the better reading per box (one model alone misses the other script); the winning model gives the script | `easyocr` (verified) or `paddleocr` |
 | `classify` | Splits CJK boxes into **local** (Chinese-Indonesian), **mainland** (PRC) or ambiguous from script, keywords and Latin co-text. Keeps the treatment (Chinese presence) out of the outcome (identity display) | |
 | `aggregate` | pano → point-year → unit-year panels, with separate local / mainland indices when `classify` ran | |
 | `validate-export` / `validate-score` | Stratified hand-coding sample with boxes drawn on; precision/recall of the CJK flag | |
@@ -35,7 +35,8 @@ points.csv  panos.csv            images/   ocr_*.csv  *_classified  panel_*.csv 
 
 ```bash
 pip install -r requirements.txt
-pip install easyocr                 # or: pip install paddlepaddle paddleocr
+pip install easyocr zhconv          # or: pip install paddlepaddle paddleocr
+python scripts/ocr_smoke.py         # real-OCR check on synthetic signs: expect 4/4 ok
 pip install playwright && playwright install chromium   # for historical imagery
 pip install osmnx hanzidentifier    # optional
 export GOOGLE_MAPS_API_KEY=...      # never commit it; keep it in the environment

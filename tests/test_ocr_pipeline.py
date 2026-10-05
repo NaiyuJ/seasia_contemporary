@@ -113,3 +113,24 @@ def test_run_ocr_aggregate_validate(tmp_path):
     s = validate.score(labels)
     assert s["tp"] == 2 and s["fn"] == 1 and s["fp"] == 0
     assert s["precision"] == 1.0 and abs(s["recall"] - 2 / 3) < 1e-9
+
+
+def test_dual_detector_merge_logic():
+    """Merge rule without loading models: higher confidence wins per matched box."""
+    from signage.ocr import EasyOCRDualDetector, _iou
+    box = [[0, 0], [100, 0], [100, 40], [0, 40]]
+    shifted = [[5, 2], [105, 2], [105, 42], [5, 42]]
+    far = [[300, 300], [400, 300], [400, 340], [300, 340]]
+    assert _iou(box, box) == 1.0 and _iou(box, far) == 0.0 and 0.8 < _iou(box, shifted) < 1.0
+
+    d = EasyOCRDualDetector.__new__(EasyOCRDualDetector)
+    d.iou_match, d.sim, d.tra = 0.5, None, None
+    sim = [ocr.TextBox("金蕺酒家", 0.06, box, "simplified"), ocr.TextBox("TOKO", 0.9, far)]
+    tra = [ocr.TextBox("金龍酒家", 0.99, shifted, "traditional")]
+    d._read = lambda reader, path, hint: sim if hint == "simplified" else tra  # type: ignore
+    out = d.detect("x.png")
+    texts = {b.text: b for b in out}
+    assert set(texts) == {"金龍酒家", "TOKO"}
+    assert texts["金龍酒家"].script_hint == "traditional"
+    assert ocr.script_of("金龍酒家", "traditional") == "traditional"
+    assert ocr.script_of("TOKO", None) == "none"
