@@ -5,6 +5,7 @@ pyproj>=3.5
 requests>=2.31
 pyyaml>=6.0
 pillow>=10.0
+lxml>=4.9            # pandas.read_html for BPS tables
 
 # optional: road sampling straight from OpenStreetMap
 # osmnx>=1.9
@@ -18,3 +19,6 @@ pillow>=10.0
 
 # optional: simplified vs traditional classification
 # hanzidentifier>=1.1
+
+# optional: Dukcapil PDF tables (konghucu pdf-extract)
+# pdfplumber>=0.10

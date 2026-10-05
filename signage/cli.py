@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import aggregate, discover, fetch, ocr, sample, validate
+from . import aggregate, classify, discover, fetch, ocr, sample, validate
 
 
 def _read_if_exists(path: Path):
@@ -64,6 +64,15 @@ def cmd_ocr(a):
     imgs.to_csv(a.out_images, index=False)
     print(f"{len(imgs)} images, {int((imgs['n_cjk_boxes'] > 0).sum())} with CJK text, "
           f"{len(boxes)} boxes -> {a.out_boxes}")
+
+
+def cmd_classify(a):
+    boxes = classify.classify_boxes(pd.read_csv(a.ocr_boxes))
+    imgs = classify.image_type_counts(boxes, pd.read_csv(a.ocr_images))
+    boxes.to_csv(a.out_boxes, index=False)
+    imgs.to_csv(a.out_images, index=False)
+    print(boxes["sign_type"].value_counts(dropna=True).to_string())
+    print(f"-> {a.out_boxes}, {a.out_images} (pass the latter to aggregate --ocr-images)")
 
 
 def cmd_aggregate(a):
@@ -140,6 +149,13 @@ def build_parser():
     o.add_argument("--out-boxes", default="data/ocr_boxes.csv")
     o.add_argument("--out-images", default="data/ocr_images.csv")
     o.set_defaults(func=cmd_ocr)
+
+    k = sp.add_parser("classify", help="split CJK boxes into local / mainland / ambiguous")
+    k.add_argument("--ocr-boxes", default="data/ocr_boxes.csv")
+    k.add_argument("--ocr-images", default="data/ocr_images.csv")
+    k.add_argument("--out-boxes", default="data/ocr_boxes_classified.csv")
+    k.add_argument("--out-images", default="data/ocr_images_classified.csv")
+    k.set_defaults(func=cmd_classify)
 
     g = sp.add_parser("aggregate", help="build pano / point-year / unit-year panels")
     g.add_argument("--panos", default="data/panos.csv")

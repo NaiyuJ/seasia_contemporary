@@ -16,8 +16,8 @@ compared across years (within-location variation).
 ## Pipeline
 
 ```
-sample ──> discover ──> cost ──> fetch ──> ocr ──> aggregate ──> validate
-points.csv  panos.csv            images/   ocr_*.csv  panel_*.csv   labels
+sample ──> discover ──> cost ──> fetch ──> ocr ──> classify ──> aggregate ──> validate
+points.csv  panos.csv            images/   ocr_*.csv  *_classified  panel_*.csv   labels
 ```
 
 | Stage | What it does | Needs |
@@ -27,7 +27,8 @@ points.csv  panos.csv            images/   ocr_*.csv  panel_*.csv   labels
 | `cost` | Estimated bill before fetching | |
 | `fetch` | Static API images at bearing ±90° (both sides of the street) | API key; billed per image |
 | `ocr` | Scene-text detection, flags boxes containing CJK ideographs, simplified/traditional if `hanzidentifier` is installed | `easyocr` or `paddleocr` |
-| `aggregate` | pano → point-year → unit-year panels | |
+| `classify` | Splits CJK boxes into **local** (Chinese-Indonesian), **mainland** (PRC) or ambiguous from script, keywords and Latin co-text. Keeps the treatment (Chinese presence) out of the outcome (identity display) | |
+| `aggregate` | pano → point-year → unit-year panels, with separate local / mainland indices when `classify` ran | |
 | `validate-export` / `validate-score` | Stratified hand-coding sample with boxes drawn on; precision/recall of the CJK flag | |
 
 ## Setup
@@ -53,7 +54,8 @@ python -m signage.cli discover --backend jsapi --radius 30
 python -m signage.cli cost
 python -m signage.cli fetch    --max-images 200          # pilot first
 python -m signage.cli ocr      --detector easyocr --limit 200
-python -m signage.cli aggregate
+python -m signage.cli classify
+python -m signage.cli aggregate --ocr-images data/ocr_images_classified.csv
 python -m signage.cli validate-export --n-pos 100 --n-neg 100
 # hand-code data/validation/labels_template.csv, then:
 python -m signage.cli validate-score
@@ -77,6 +79,29 @@ python -m pytest -q
 | `mean_cjk_area_share` | pixel area of Chinese text / image area |
 | `n_simplified`, `n_traditional` | script counts (mainland vs Taiwan/HK convention) |
 | `n_points_multi_year` | points observed in more than one year (usable for FE designs) |
+| `share_points_local`, `share_points_mainland` | same as `share_points_cjk`, split by sign type (after `classify`) |
 
 See `docs/signage_design.md` for identification caveats and `docs/konghucu_data_sources.md`
 for the Konghucu registration measure.
+
+## Second module: `konghucu/` — registered religion by kabupaten
+
+Self-collected panel of Dukcapil/BPS religion counts (Islam … Khonghucu) by
+kabupaten/kota, for the "switching one's ID-card religion to Confucianism"
+identity measure. Three public sources, one long format, one harmonizer.
+
+```bash
+export BPS_API_KEY=...                                   # free: https://webapi.bps.go.id
+python -m konghucu.cli bps-search                        # catalogue religion tables in all 38 provinces
+python -m konghucu.cli bps-fetch                         # download + parse the by-kabupaten ones
+python -m konghucu.cli arcgis-discover                   # which GIS Dukcapil layers carry religion fields
+python -m konghucu.cli arcgis-fetch --layer-url <url> --ref dkb2023s2 --year 2023 --semester 2
+python -m konghucu.cli pdf-extract data/raw/dukcapil/*.pdf --province-code 61
+python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
+       --inputs data/konghucu/bps_long.csv data/konghucu/arcgis_long.csv data/konghucu/pdf_long.csv
+```
+
+Output `data/konghucu/religion_panel.csv`: one row per unit × year × semester
+(semester 0 = annual source), one column per religion, `konghucu_share`, and
+which sources fed the cell. Unmatched unit names are printed so you can fix the
+code table. Sources and caveats: `docs/konghucu_data_sources.md`.

@@ -19,14 +19,20 @@ from __future__ import annotations
 import pandas as pd
 
 
+TYPE_COLS = ["n_local_boxes", "n_mainland_boxes", "n_ambiguous_boxes"]  # from signage.classify, optional
+
+
 def pano_level(ocr_images: pd.DataFrame, panos: pd.DataFrame) -> pd.DataFrame:
     ok = ocr_images[ocr_images["ocr_status"] == "OK"]
-    g = ok.groupby("pano_id").agg(n_images=("path", "size"), n_boxes=("n_boxes", "sum"),
-                                  n_cjk_boxes=("n_cjk_boxes", "sum"), cjk_area_px=("cjk_area_px", "sum"),
-                                  img_area_px=("img_area_px", "sum"),
-                                  n_simplified=("n_simplified", "sum"),
-                                  n_traditional=("n_traditional", "sum")).reset_index()
+    aggs = dict(n_images=("path", "size"), n_boxes=("n_boxes", "sum"), n_cjk_boxes=("n_cjk_boxes", "sum"),
+                cjk_area_px=("cjk_area_px", "sum"), img_area_px=("img_area_px", "sum"),
+                n_simplified=("n_simplified", "sum"), n_traditional=("n_traditional", "sum"))
+    type_cols = [c for c in TYPE_COLS if c in ok.columns]
+    aggs.update({c: (c, "sum") for c in type_cols})
+    g = ok.groupby("pano_id").agg(**aggs).reset_index()
     g["any_cjk"] = (g["n_cjk_boxes"] > 0).astype(int)
+    for c in type_cols:
+        g["any_" + c[2:-6]] = (g[c] > 0).astype(int)   # any_local, any_mainland, any_ambiguous
     g["cjk_box_share"] = (g["n_cjk_boxes"] / g["n_boxes"]).where(g["n_boxes"] > 0)
     g["cjk_area_share"] = (g["cjk_area_px"] / g["img_area_px"]).where(g["img_area_px"] > 0)
     meta = panos[panos["status"] == "OK"][["pano_id", "point_id", "unit_id", "date", "is_current",
@@ -37,10 +43,14 @@ def pano_level(ocr_images: pd.DataFrame, panos: pd.DataFrame) -> pd.DataFrame:
 
 
 def point_year_panel(pano: pd.DataFrame) -> pd.DataFrame:
-    g = pano.groupby(["unit_id", "point_id", "year"]).agg(
-        n_panos=("pano_id", "size"), any_cjk=("any_cjk", "max"), n_cjk_boxes=("n_cjk_boxes", "sum"),
-        n_boxes=("n_boxes", "sum"), cjk_area_px=("cjk_area_px", "sum"), img_area_px=("img_area_px", "sum"),
-        n_simplified=("n_simplified", "sum"), n_traditional=("n_traditional", "sum")).reset_index()
+    aggs = dict(n_panos=("pano_id", "size"), any_cjk=("any_cjk", "max"), n_cjk_boxes=("n_cjk_boxes", "sum"),
+                n_boxes=("n_boxes", "sum"), cjk_area_px=("cjk_area_px", "sum"), img_area_px=("img_area_px", "sum"),
+                n_simplified=("n_simplified", "sum"), n_traditional=("n_traditional", "sum"))
+    for c in TYPE_COLS:
+        if c in pano.columns:
+            aggs[c] = (c, "sum")
+            aggs["any_" + c[2:-6]] = ("any_" + c[2:-6], "max")
+    g = pano.groupby(["unit_id", "point_id", "year"]).agg(**aggs).reset_index()
     g["cjk_box_share"] = (g["n_cjk_boxes"] / g["n_boxes"]).where(g["n_boxes"] > 0)
     g["cjk_area_share"] = (g["cjk_area_px"] / g["img_area_px"]).where(g["img_area_px"] > 0)
     years_per_point = g.groupby("point_id")["year"].transform("nunique")
@@ -49,10 +59,14 @@ def point_year_panel(pano: pd.DataFrame) -> pd.DataFrame:
 
 
 def unit_year_panel(point_year: pd.DataFrame) -> pd.DataFrame:
-    g = point_year.groupby(["unit_id", "year"]).agg(
-        n_points=("point_id", "nunique"), n_panos=("n_panos", "sum"),
-        share_points_cjk=("any_cjk", "mean"), mean_cjk_boxes=("n_cjk_boxes", "mean"),
-        mean_cjk_box_share=("cjk_box_share", "mean"), mean_cjk_area_share=("cjk_area_share", "mean"),
-        n_simplified=("n_simplified", "sum"), n_traditional=("n_traditional", "sum"),
-        n_points_multi_year=("n_years_observed", lambda s: int((s > 1).sum()))).reset_index()
-    return g
+    aggs = dict(n_points=("point_id", "nunique"), n_panos=("n_panos", "sum"),
+                share_points_cjk=("any_cjk", "mean"), mean_cjk_boxes=("n_cjk_boxes", "mean"),
+                mean_cjk_box_share=("cjk_box_share", "mean"), mean_cjk_area_share=("cjk_area_share", "mean"),
+                n_simplified=("n_simplified", "sum"), n_traditional=("n_traditional", "sum"),
+                n_points_multi_year=("n_years_observed", lambda s: int((s > 1).sum())))
+    for c in TYPE_COLS:
+        if c in point_year.columns:
+            kind = c[2:-6]
+            aggs[f"share_points_{kind}"] = (f"any_{kind}", "mean")
+            aggs[f"mean_{kind}_boxes"] = (c, "mean")
+    return point_year.groupby(["unit_id", "year"]).agg(**aggs).reset_index()

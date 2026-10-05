@@ -15,7 +15,8 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 LABEL_COLUMNS = ["path", "annotated_path", "ocr_any_cjk", "ocr_n_cjk_boxes",
-                 "human_any_cjk", "human_n_cjk_signs", "human_notes"]
+                 "human_any_cjk", "human_n_cjk_signs", "human_sign_type", "human_notes"]
+# human_sign_type: local | mainland | ambiguous | none (see signage.classify)
 
 
 def _parse_bbox(s: str):
@@ -52,7 +53,7 @@ def export_sample(ocr_images: pd.DataFrame, ocr_boxes: pd.DataFrame, out_dir: st
         draw_boxes(src, dst, ocr_boxes[ocr_boxes["path"] == rec.path])
         rows.append({"path": rec.path, "annotated_path": str(dst), "ocr_any_cjk": int(rec.n_cjk_boxes > 0),
                      "ocr_n_cjk_boxes": int(rec.n_cjk_boxes), "human_any_cjk": "",
-                     "human_n_cjk_signs": "", "human_notes": ""})
+                     "human_n_cjk_signs": "", "human_sign_type": "", "human_notes": ""})
     labels = pd.DataFrame(rows, columns=LABEL_COLUMNS)
     labels.to_csv(out_dir / "labels_template.csv", index=False)
     return labels
