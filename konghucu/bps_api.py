@@ -8,11 +8,11 @@ from __future__ import annotations
 import os
 import re
 import time
-from io import StringIO
 from typing import Iterable, List, Optional
 
 import pandas as pd
 
+from .htmltable import read_html_tables
 from .religion import (LONG_COLUMNS, PROVINCES, canonical_religion, norm_label, parse_count,
                        unit_level, norm_unit_name, year_from_text)
 
@@ -95,10 +95,8 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
 
     Handles multi-level headers (e.g. a 'Agama' super-header over religion names, or
     year super-headers over religions). The first text column is the unit name."""
-    tables = pd.read_html(StringIO(html), thousands=None)
     frames = []
-    for t in tables:
-        t.columns = _flatten_columns(t.columns)
+    for t in read_html_tables(html):
         if t.shape[1] < 2:
             continue
         name_col = t.columns[0]
@@ -108,7 +106,7 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             continue
         for rec in t.itertuples(index=False):
             name = rec[0]
-            if pd.isna(name):
+            if pd.isna(name) or not str(name).strip():
                 continue
             nm = norm_label(name)
             if not nm or nm in {"kabupaten/kota", "kabupaten", "kota", "wilayah", "daerah"}:

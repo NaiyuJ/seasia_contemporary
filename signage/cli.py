@@ -16,7 +16,9 @@ def _read_if_exists(path: Path):
 
 
 def cmd_sample(a):
-    polys = sample.load_polygons(a.polygons, a.id_field)
+    if not a.polygons and not a.units:
+        raise SystemExit("give --polygons <geojson> or --units <'Kota X, Indonesia'> ...")
+    polys = sample.polygons_from_names(a.units) if a.units else sample.load_polygons(a.polygons, a.id_field)
     df = sample.sample_points(polys, a.roads, a.spacing, a.max_per_unit, a.seed)
     df.to_csv(a.out, index=False)
     print(f"{len(df)} points in {df['unit_id'].nunique()} units -> {a.out}")
@@ -104,7 +106,10 @@ def build_parser():
     sp = p.add_subparsers(dest="cmd", required=True)
 
     s = sp.add_parser("sample", help="sample road points inside admin polygons")
-    s.add_argument("--polygons", required=True, help="GeoJSON of admin units")
+    s.add_argument("--polygons", default=None, help="GeoJSON of admin units")
+    s.add_argument("--units", nargs="+", default=None,
+                   help="admin-unit names to geocode via OSM instead of --polygons, e.g. 'Kota Singkawang, Indonesia' "
+                        "or '6172=Kota Singkawang, Indonesia' to set the unit_id")
     s.add_argument("--id-field", default="unit_id")
     s.add_argument("--roads", default="osm", help="roads GeoJSON path, or 'osm' (needs osmnx)")
     s.add_argument("--spacing", type=float, default=50.0, help="metres between candidate points")

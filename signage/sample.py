@@ -40,6 +40,23 @@ def load_polygons(path: str, id_field: str) -> List[Tuple[str, BaseGeometry]]:
     return out
 
 
+def polygons_from_names(names: Sequence[str]) -> List[Tuple[str, BaseGeometry]]:
+    """Geocode admin-unit names with osmnx/Nominatim, e.g. 'Kota Singkawang, Indonesia'.
+    Pass 'label=Name, Indonesia' to choose the unit_id, else a slug of the name is used."""
+    try:
+        import osmnx as ox  # type: ignore
+    except ImportError as e:  # pragma: no cover
+        raise ImportError("--units needs `pip install osmnx`") from e
+    out = []
+    for raw in names:
+        label, _, query = raw.partition("=") if "=" in raw else (None, None, raw)
+        gdf = ox.geocode_to_gdf(query)
+        geom = gdf.geometry.iloc[0]
+        uid = label or "".join(ch if ch.isalnum() else "_" for ch in query.split(",")[0].strip().lower())
+        out.append((uid, geom))
+    return out
+
+
 def _iter_lines(geom: BaseGeometry) -> Iterable[LineString]:
     if geom.is_empty:
         return

@@ -105,3 +105,34 @@ Output `data/konghucu/religion_panel.csv`: one row per unit × year × semester
 (semester 0 = annual source), one column per religion, `konghucu_share`, and
 which sources fed the cell. Unmatched unit names are printed so you can fix the
 code table. Sources and caveats: `docs/konghucu_data_sources.md`.
+
+## Third module: `foreigners/` — foreign nationals (Chinese nationals) by kabupaten
+
+Control / exclusion variable so that PRC presence is not confused with
+Chinese-Indonesian identity. Sources: BPS provincial "orang asing menurut
+kebangsaan" tables (immigration-office data), Kemnaker foreign-worker (TKA)
+datasets on CKAN portals, and the WNI/WNA split in Dukcapil PDFs.
+
+```bash
+python -m foreigners.cli bps-search && python -m foreigners.cli bps-fetch
+python -m foreigners.cli ckan-search && python -m foreigners.cli ckan-fetch --province-code 35
+python -m foreigners.cli pdf-wna data/raw/dukcapil/*.pdf --province-code 72
+python -m foreigners.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
+       --kanim-crosswalk data/raw/kanim_crosswalk.csv \
+       --inputs data/foreigners/bps_long.csv data/foreigners/ckan_long.csv data/foreigners/dukcapil_wna_long.csv
+```
+
+Design and caveats: `docs/foreigners_design.md`.
+
+## Running the pilot locally
+
+The cloud container this was written in cannot reach Indonesian government
+hosts or OSM, so the network stages were tested only against fakes. Locally:
+
+```bash
+python scripts/preflight.py      # keys, network, packages: says exactly what is missing
+bash scripts/pilot.sh            # BPS religion tables -> GIS Dukcapil scan -> Street View pilot
+```
+
+`scripts/pilot.sh` takes `PILOT_UNITS` (pipe-separated admin-unit names, default
+Kota Singkawang and Jakarta Barat), `MAX_IMAGES` (default 200) and `DETECTOR`.
