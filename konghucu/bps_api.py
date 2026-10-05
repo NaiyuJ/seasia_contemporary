@@ -30,11 +30,21 @@ def get_key(key: Optional[str] = None) -> str:
     return key
 
 
-def _get_json(session, url: str, retries: int = 3) -> dict:
+def _get_json(session, url: str, retries: int = 4) -> dict:
+    import requests as _rq
     for attempt in range(retries):
-        r = session.get(url, timeout=30)
+        try:
+            r = session.get(url, timeout=60)
+        except _rq.RequestException as e:  # timeouts, resets: back off and retry
+            if attempt == retries - 1:
+                raise RuntimeError(f"network error after {retries} tries: {type(e).__name__}") from e
+            time.sleep(3 * 2 ** attempt)
+            continue
         if r.status_code == 200:
-            return r.json()
+            try:
+                return r.json()
+            except ValueError:
+                raise RuntimeError(f"non-JSON response for {url}")
         if r.status_code in (429, 500, 502, 503):
             time.sleep(2 ** attempt)
             continue
@@ -110,13 +120,18 @@ def _domains_to_scan(session, key: str, level: str, provinces: Optional[List[str
 
 def search_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2, log=print,
                          level: str = "province", provinces: Optional[List[str]] = None,
-                         keywords: Optional[Sequence[str]] = None) -> pd.DataFrame:
+                         keywords: Optional[Sequence[str]] = None, skip_domains: Optional[set] = None,
+                         on_domain=None) -> pd.DataFrame:
     """Catalogue static tables about religion. level='province' scans the 38 provincial
-    domains; level='kabupaten' scans every kabupaten/kota domain (slow: ~500 x keywords)."""
+    domains; level='kabupaten' scans every kabupaten/kota domain (slow: ~500 x keywords).
+    `skip_domains` are left out (resume); `on_domain(domain, rows)` is called after each
+    domain so the caller can checkpoint."""
     keywords = list(keywords or ([keyword] if keyword != "agama" else KEYWORDS))
     rows, seen = [], set()
     for domain, prov, name in _domains_to_scan(session, key, level, provinces, log):
-        n = 0
+        if skip_domains and domain in skip_domains:
+            continue
+        n, start = 0, len(rows)
         for kw in keywords:
             try:
                 found = list_static_tables(session, domain, kw, key)
@@ -134,6 +149,8 @@ def search_all_provinces(session, key: str, keyword: str = "agama", sleep_s: flo
                              "excel": r.get("excel"), **classify_title(r.get("title"))})
             time.sleep(sleep_s)
         log(f"  {domain} {name}: {n} tables")
+        if on_domain:
+            on_domain(domain, rows[start:])
     cols = ["domain", "province_code", "domain_name", "table_id", "title", "subj", "updt_date", "excel",
             "about_religion", "by_unit", "is_percent"]
     return pd.DataFrame(rows, columns=cols)
@@ -204,9 +221,10 @@ def fetch_tables(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.
         year = year_from_text(data.get("title") or rec.title)
         ref = f"bps:{rec.domain}:{rec.table_id}"
         try:
-            parts.append(parse_religion_html(html, str(rec.province_code), year, ref))
+            d = parse_religion_html(html, str(rec.province_code), year, ref)
         except ValueError:
             continue
+        parts.append(rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None)))
         time.sleep(sleep_s)
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS)
 
@@ -235,11 +253,14 @@ def list_vars(session, domain: str, keyword: str, key: str, lang: str = "ind") -
 
 def search_vars_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2, log=print,
                               level: str = "province", provinces: Optional[List[str]] = None,
-                              keywords: Optional[Sequence[str]] = None) -> pd.DataFrame:
+                              keywords: Optional[Sequence[str]] = None, skip_domains: Optional[set] = None,
+                              on_domain=None) -> pd.DataFrame:
     keywords = list(keywords or ([keyword] if keyword != "agama" else KEYWORDS))
     rows, seen = [], set()
     for domain, prov, name in _domains_to_scan(session, key, level, provinces, log):
-        n = 0
+        if skip_domains and domain in skip_domains:
+            continue
+        n, start = 0, len(rows)
         for kw in keywords:
             try:
                 found = list_vars(session, domain, kw, key)
@@ -257,6 +278,8 @@ def search_vars_all_provinces(session, key: str, keyword: str = "agama", sleep_s
                              "unit": r.get("unit"), "notes": r.get("notes"), **classify_title(r.get("title"))})
             time.sleep(sleep_s)
         log(f"  {domain} {name}: {n} variables")
+        if on_domain:
+            on_domain(domain, rows[start:])
     cols = ["domain", "province_code", "domain_name", "var_id", "title", "subj", "vertical", "unit", "notes",
             "about_religion", "by_unit", "is_percent"]
     return pd.DataFrame(rows, columns=cols)
@@ -320,6 +343,36 @@ def fetch_vars(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.3,
             (Path(raw_dir) / f"bps_var_{rec.domain}_{rec.var_id}.json").write_text(json.dumps(js, ensure_ascii=False))
         d = parse_dynamic(js, str(rec.province_code), f"bpsvar:{rec.domain}:{rec.var_id}")
         if len(d):
-            parts.append(d)
+            parts.append(rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None)))
         time.sleep(sleep_s)
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS)
+
+
+def is_kabupaten_domain(domain: str) -> bool:
+    return len(str(domain)) == 4 and not str(domain).endswith("00")
+
+
+def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional[str]) -> pd.DataFrame:
+    """For a table served by a kabupaten/kota BPS domain the rows are kecamatan (or
+    kelurahan). Return the kecamatan rows tagged level='kecamatan' plus one row per
+    (year, religion) for the kabupaten itself, with unit_code = domain: the table's
+    total row when it has one, otherwise the sum of the kecamatan rows."""
+    if df.empty or not is_kabupaten_domain(domain):
+        return df
+    d = df.copy()
+    is_total = d["unit_name"] == "__PROVINCE__"
+    kec = d[~is_total].copy()
+    kec["level"] = "kecamatan"
+    kec["unit_code"] = None
+    tot = d[is_total].copy()
+    if tot.empty:
+        tot = (kec.dropna(subset=["count"]).groupby(["year", "religion"], dropna=False)["count"].sum()
+               .reset_index())
+        tot["source"], tot["ref"], tot["semester"] = "bps_kabsum", d["ref"].iloc[0], None
+        tot["province_code"] = d["province_code"].iloc[0]
+    tot["unit_code"] = str(domain).zfill(4)
+    tot["unit_name"] = domain_name or str(domain)
+    tot["level"] = "kabupaten"
+    tot["unit_name_norm"] = norm_unit_name(tot["unit_name"].iloc[0]) if len(tot) else None
+    cols = LONG_COLUMNS + ["level", "unit_name_norm"]
+    return pd.concat([tot.reindex(columns=cols), kec.reindex(columns=cols)], ignore_index=True)

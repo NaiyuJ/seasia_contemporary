@@ -17,21 +17,63 @@ from . import arcgis, bps_api, harmonize, pdf_tables
 from .religion import LONG_COLUMNS
 
 
+class _Checkpoint:
+    """Append each scanned domain's rows to the catalogue CSV and its id to a .scanned
+    sidecar, so an interrupted scan resumes where it stopped (--resume)."""
+
+    def __init__(self, out: str, resume: bool, columns):
+        self.out, self.scanned_path, self.columns = Path(_out(out)), Path(out + ".scanned"), columns
+        self.done = set()
+        if resume and self.scanned_path.exists():
+            self.done = set(self.scanned_path.read_text().split())
+        elif not resume:
+            self.out.unlink(missing_ok=True)
+            self.scanned_path.unlink(missing_ok=True)
+        self.header_written = self.out.exists() and self.out.stat().st_size > 0
+
+    def __call__(self, domain, rows):
+        if rows:
+            pd.DataFrame(rows, columns=self.columns).to_csv(self.out, mode="a", index=False, header=not self.header_written)
+            self.header_written = True
+        with self.scanned_path.open("a") as f:
+            f.write(f"{domain}\n")
+
+    def load(self):
+        return pd.read_csv(self.out, dtype=str) if self.out.exists() and self.out.stat().st_size > 0 \
+            else pd.DataFrame(columns=self.columns)
+
+
+STATIC_COLS = ["domain", "province_code", "domain_name", "table_id", "title", "subj", "updt_date", "excel",
+               "about_religion", "by_unit", "is_percent"]
+VAR_COLS = ["domain", "province_code", "domain_name", "var_id", "title", "subj", "vertical", "unit", "notes",
+            "about_religion", "by_unit", "is_percent"]
+
+
 def cmd_bps_search(a):
     key = bps_api.get_key()
     s = requests.Session()
     kw = a.keywords or None
     pd.set_option("display.max_colwidth", 100)
     pd.set_option("display.width", 200)
-    print(f"== static tables ({a.level} domains)")
-    df = bps_api.search_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw)
-    df.to_csv(_out(a.out), index=False)
+    print(f"== static tables ({a.level} domains){' [resuming]' if a.resume else ''}")
+    ck = _Checkpoint(a.out, a.resume, STATIC_COLS)
+    bps_api.search_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw,
+                                 skip_domains=ck.done, on_domain=ck)
+    df = ck.load()
+    for c in ("about_religion", "by_unit", "is_percent"):
+        df[c] = df[c].astype(str).str.lower() == "true"
     sel = df[df["about_religion"]]
     print(f"{len(df)} tables, {len(sel)} about population by religion ({int(sel['is_percent'].sum())} are percentages) -> {a.out}")
     print(sel[["domain", "domain_name", "table_id", "is_percent", "title"]].to_string(index=False))
-    print(f"== dynamic tables ({a.level} domains)")
-    dv = bps_api.search_vars_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw)
-    dv.to_csv(_out(a.out_vars), index=False)
+    if a.skip_vars:
+        return
+    print(f"== dynamic tables ({a.level} domains){' [resuming]' if a.resume else ''}")
+    ckv = _Checkpoint(a.out_vars, a.resume, VAR_COLS)
+    bps_api.search_vars_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw,
+                                      skip_domains=ckv.done, on_domain=ckv)
+    dv = ckv.load()
+    for c in ("about_religion", "by_unit", "is_percent"):
+        dv[c] = dv[c].astype(str).str.lower() == "true"
     selv = dv[dv["about_religion"]]
     print(f"{len(dv)} variables, {len(selv)} about population by religion ({int(selv['is_percent'].sum())} are percentages) -> {a.out_vars}")
     print(selv[["domain", "domain_name", "var_id", "is_percent", "title"]].to_string(index=False))
@@ -47,15 +89,26 @@ def cmd_bps_search(a):
 def cmd_bps_fetch(a):
     key = bps_api.get_key()
     s = requests.Session()
-    cat = pd.read_csv(a.catalogue, dtype={"domain": str, "province_code": str, "table_id": str})
-    if not a.all:
-        cat = cat[cat["about_religion"] & ~cat["is_percent"]]
-    parts = [bps_api.fetch_tables(s, cat, key, raw_dir=a.raw_dir)]
-    if Path(a.catalogue_vars).exists():
-        cv = pd.read_csv(a.catalogue_vars, dtype={"domain": str, "province_code": str, "var_id": str})
-        if not a.all:
-            cv = cv[cv["about_religion"] & ~cv["is_percent"]]
+    def _load(paths):
+        frames = [pd.read_csv(p, dtype=str) for p in paths if Path(p).exists() and Path(p).stat().st_size > 0]
+        if not frames:
+            return None
+        df = pd.concat(frames, ignore_index=True)
+        for c in ("about_religion", "by_unit", "is_percent"):
+            df[c] = df[c].astype(str).str.lower() == "true"
+        return df if a.all else df[df["about_religion"] & ~df["is_percent"]]
+
+    parts = []
+    cat = _load(a.catalogue)
+    if cat is not None:
+        print(f"static tables to fetch: {len(cat)}")
+        parts.append(bps_api.fetch_tables(s, cat, key, raw_dir=a.raw_dir))
+    cv = _load(a.catalogue_vars)
+    if cv is not None:
+        print(f"dynamic variables to fetch: {len(cv)}")
         parts.append(bps_api.fetch_vars(s, cv, key, raw_dir=a.raw_dir))
+    if not parts:
+        raise SystemExit("no catalogue files found; run bps-search first")
     df = pd.concat(parts, ignore_index=True)
     df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} rows from {df['ref'].nunique()} tables -> {a.out}")
@@ -122,11 +175,13 @@ def build_parser():
     s.add_argument("--provinces", nargs="*", default=None, help="2-digit province codes to limit the scan")
     s.add_argument("--out", default="data/konghucu/bps_catalogue.csv")
     s.add_argument("--out-vars", default="data/konghucu/bps_catalogue_vars.csv")
+    s.add_argument("--resume", action="store_true", help="continue an interrupted scan (uses <out>.scanned)")
+    s.add_argument("--skip-vars", action="store_true", help="only static tables")
     s.set_defaults(func=cmd_bps_search)
 
     f = sp.add_parser("bps-fetch", help="download and parse the catalogued tables")
-    f.add_argument("--catalogue", default="data/konghucu/bps_catalogue.csv")
-    f.add_argument("--catalogue-vars", default="data/konghucu/bps_catalogue_vars.csv")
+    f.add_argument("--catalogue", nargs="+", default=["data/konghucu/bps_catalogue.csv", "data/konghucu/bps_catalogue_kab.csv"])
+    f.add_argument("--catalogue-vars", nargs="+", default=["data/konghucu/bps_catalogue_vars.csv", "data/konghucu/bps_catalogue_vars_kab.csv"])
     f.add_argument("--all", action="store_true", help="fetch every table, not only by_unit ones")
     f.add_argument("--raw-dir", default="data/raw/bps")
     f.add_argument("--out", default="data/konghucu/bps_long.csv")

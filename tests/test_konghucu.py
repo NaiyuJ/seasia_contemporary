@@ -272,3 +272,50 @@ def test_search_scans_kabupaten_domains():
     s = FakeSession({"webapi.bps.go.id": router})
     df = bps_api.search_all_provinces(s, "k", level="kabupaten", provinces=["61"], sleep_s=0, log=lambda *_: None)
     assert len(df) == 1 and df.iloc[0]["domain"] == "6172" and df.iloc[0]["by_unit"]
+
+
+def test_rollup_kabupaten_domain_with_and_without_total_row():
+    html_total = """<table><tr><th>Kecamatan</th><th>Islam</th><th>Khonghucu</th></tr>
+    <tr><td>Pemangkat</td><td>100</td><td>5</td></tr><tr><td>Tebas</td><td>200</td><td>7</td></tr>
+    <tr><td>Jumlah</td><td>300</td><td>12</td></tr></table>"""
+    d = bps_api.parse_religion_html(html_total, "61", 2022, "bps:6101:1")
+    r = bps_api.rollup_kabupaten_domain(d, "6101", "Sambas")
+    kab = r[r["level"] == "kabupaten"]
+    assert set(kab["unit_code"]) == {"6101"} and kab[kab["religion"] == "konghucu"]["count"].item() == 12
+    assert (r[r["level"] == "kecamatan"]["unit_code"].isna()).all() and len(r[r["level"] == "kecamatan"]) == 4
+
+    html_nototal = html_total.replace("<tr><td>Jumlah</td><td>300</td><td>12</td></tr>", "")
+    d2 = bps_api.parse_religion_html(html_nototal, "61", 2022, "bps:6101:2")
+    r2 = bps_api.rollup_kabupaten_domain(d2, "6101", "Sambas")
+    kab2 = r2[r2["level"] == "kabupaten"]
+    assert kab2[kab2["religion"] == "konghucu"]["count"].item() == 12 and (kab2["source"] == "bps_kabsum").all()
+
+    # province domain: untouched
+    assert bps_api.rollup_kabupaten_domain(d, "6100", "Kalbar").equals(d)
+
+
+def test_network_error_becomes_runtime_error_and_scan_continues(monkeypatch):
+    import requests
+
+    class Boom:
+        def get(self, url, timeout=None):
+            raise requests.ConnectionError("reset")
+    monkeypatch.setattr(bps_api.time, "sleep", lambda *_: None)
+    with pytest.raises(RuntimeError):
+        bps_api._get_json(Boom(), "https://x")
+    logs = []
+    df = bps_api.search_all_provinces(Boom(), "k", provinces=["61"], sleep_s=0, log=logs.append)
+    assert len(df) == 0 and any("network error" in m for m in logs)
+
+
+def test_checkpoint_resume(tmp_path):
+    from konghucu.cli import _Checkpoint, STATIC_COLS
+    out = str(tmp_path / "cat.csv")
+    ck = _Checkpoint(out, resume=False, columns=STATIC_COLS)
+    ck("6101", [{"domain": "6101", "province_code": "61", "domain_name": "Sambas", "table_id": "1", "title": "t",
+                 "subj": None, "updt_date": None, "excel": None, "about_religion": True, "by_unit": True, "is_percent": False}])
+    ck("6102", [])
+    ck2 = _Checkpoint(out, resume=True, columns=STATIC_COLS)
+    assert ck2.done == {"6101", "6102"} and len(ck2.load()) == 1
+    ck3 = _Checkpoint(out, resume=False, columns=STATIC_COLS)
+    assert ck3.done == set() and len(ck3.load()) == 0
