@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signage"
+version = "0.1.0"
+description = "Street View storefront Chinese-character detection pipeline"
+requires-python = ">=3.10"
+dependencies = ["pandas>=2.0", "numpy>=1.24", "shapely>=2.0", "pyproj>=3.5", "requests>=2.31", "pyyaml>=6.0", "pillow>=10.0"]
+
+[project.scripts]
+signage = "signage.cli:main"
+
+[tool.setuptools]
+packages = ["signage"]

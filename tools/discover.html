@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>signage discover</title></head>
+<body>
+<script>
+// Loaded by signage.discover.discover_jsapi through Playwright.
+// Exposes window.findPanos(lat, lng, radius) -> [{pano, date, lat, lng, current}] or {error}.
+window.svReady = false;
+function onApi() {
+  window.svc = new google.maps.StreetViewService();
+  window.svReady = true;
+}
+function ym(d) {
+  return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : null;
+}
+window.findPanos = async function (lat, lng, radius) {
+  try {
+    const { data } = await window.svc.getPanorama({
+      location: { lat, lng },
+      radius,
+      source: google.maps.StreetViewSource.OUTDOOR,
+      preference: google.maps.StreetViewPreference.NEAREST,
+    });
+    const cur = data.location;
+    const out = [{
+      pano: cur.pano, date: data.imageDate || null,
+      lat: cur.latLng ? cur.latLng.lat() : null, lng: cur.latLng ? cur.latLng.lng() : null,
+      current: true,
+    }];
+    // `time` is an undocumented array of {pano, <Date>} for historical imagery at this spot.
+    for (const t of (data.time || [])) {
+      let d = null;
+      for (const v of Object.values(t)) { if (v instanceof Date) d = v; }
+      if (t.pano && t.pano !== cur.pano) {
+        out.push({ pano: t.pano, date: ym(d), lat: null, lng: null, current: false });
+      }
+    }
+    return out;
+  } catch (e) {
+    return { error: String((e && e.code) || e) };
+  }
+};
+const key = new URLSearchParams(location.search).get("key");
+const s = document.createElement("script");
+s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&callback=onApi`;
+s.async = true;
+document.head.appendChild(s);
+</script>
+</body></html>

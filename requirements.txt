@@ -1,0 +1,20 @@
+pandas>=2.0
+numpy>=1.24
+shapely>=2.0
+pyproj>=3.5
+requests>=2.31
+pyyaml>=6.0
+pillow>=10.0
+
+# optional: road sampling straight from OpenStreetMap
+# osmnx>=1.9
+
+# optional: historical panorama discovery through the Maps JavaScript API
+# playwright>=1.40
+
+# OCR backends: install ONE of these
+# easyocr>=1.7          # pip install easyocr   (pulls in torch)
+# paddleocr>=2.7        # pip install paddlepaddle paddleocr
+
+# optional: simplified vs traditional classification
+# hanzidentifier>=1.1

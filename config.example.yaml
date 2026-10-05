@@ -1,0 +1,22 @@
+# Example settings for a two-kabupaten pilot. The CLI takes flags; this file is
+# documentation of the values used in the pilot, not read by the code.
+sample:
+  polygons: data/units.geojson
+  id_field: kabupaten_code
+  roads: osm
+  spacing_m: 50
+  max_per_unit: 300
+discover:
+  backend: jsapi
+  radius_m: 30
+fetch:
+  headings: [-90, 90]
+  size: 640x640
+  fov: 90
+  pitch: 5
+ocr:
+  detector: easyocr
+  min_conf: 0.3
+validate:
+  n_pos: 100
+  n_neg: 100
