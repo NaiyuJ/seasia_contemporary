@@ -20,17 +20,28 @@ from .religion import LONG_COLUMNS
 def cmd_bps_search(a):
     key = bps_api.get_key()
     s = requests.Session()
-    print("== static tables")
-    df = bps_api.search_all_provinces(s, key, keyword=a.keyword)
+    kw = a.keywords or None
+    pd.set_option("display.max_colwidth", 100)
+    pd.set_option("display.width", 200)
+    print(f"== static tables ({a.level} domains)")
+    df = bps_api.search_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw)
     df.to_csv(_out(a.out), index=False)
-    print(f"{len(df)} tables, {int(df['by_unit'].sum())} look like by-kabupaten religion tables -> {a.out}")
-    pd.set_option("display.max_colwidth", 90)
-    print(df[df["by_unit"]][["domain", "table_id", "title"]].to_string(index=False))
-    print("== dynamic tables (variables)")
-    dv = bps_api.search_vars_all_provinces(s, key, keyword=a.keyword)
+    sel = df[df["about_religion"]]
+    print(f"{len(df)} tables, {len(sel)} about population by religion ({int(sel['is_percent'].sum())} are percentages) -> {a.out}")
+    print(sel[["domain", "domain_name", "table_id", "is_percent", "title"]].to_string(index=False))
+    print(f"== dynamic tables ({a.level} domains)")
+    dv = bps_api.search_vars_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw)
     dv.to_csv(_out(a.out_vars), index=False)
-    print(f"{len(dv)} variables, {int(dv['about_religion'].sum())} about religion -> {a.out_vars}")
-    print(dv[dv["about_religion"]][["domain", "var_id", "title"]].to_string(index=False))
+    selv = dv[dv["about_religion"]]
+    print(f"{len(dv)} variables, {len(selv)} about population by religion ({int(selv['is_percent'].sum())} are percentages) -> {a.out_vars}")
+    print(selv[["domain", "domain_name", "var_id", "is_percent", "title"]].to_string(index=False))
+    have = set(sel["province_code"]) | set(selv["province_code"])
+    missing = [f"{c} {n}" for c, n in bps_api.PROVINCES.items() if c not in have and (not a.provinces or c in a.provinces)]
+    print(f"== provinces with no population-by-religion table at this level: {len(missing)}")
+    print("   " + "; ".join(missing))
+    if a.level == "province" and missing:
+        print("   try: python -m konghucu.cli bps-search --level kabupaten --provinces " +
+              " ".join(m.split()[0] for m in missing))
 
 
 def cmd_bps_fetch(a):
@@ -38,12 +49,12 @@ def cmd_bps_fetch(a):
     s = requests.Session()
     cat = pd.read_csv(a.catalogue, dtype={"domain": str, "province_code": str, "table_id": str})
     if not a.all:
-        cat = cat[cat["by_unit"]]
+        cat = cat[cat["about_religion"] & ~cat["is_percent"]]
     parts = [bps_api.fetch_tables(s, cat, key, raw_dir=a.raw_dir)]
     if Path(a.catalogue_vars).exists():
         cv = pd.read_csv(a.catalogue_vars, dtype={"domain": str, "province_code": str, "var_id": str})
         if not a.all:
-            cv = cv[cv["about_religion"]]
+            cv = cv[cv["about_religion"] & ~cv["is_percent"]]
         parts.append(bps_api.fetch_vars(s, cv, key, raw_dir=a.raw_dir))
     df = pd.concat(parts, ignore_index=True)
     df.to_csv(_out(a.out), index=False)
@@ -105,7 +116,10 @@ def build_parser():
     sp = p.add_subparsers(dest="cmd", required=True)
 
     s = sp.add_parser("bps-search", help="catalogue BPS static tables about religion in every province")
-    s.add_argument("--keyword", default="agama")
+    s.add_argument("--keywords", nargs="*", default=None, help="default: agama pemeluk umat penganut")
+    s.add_argument("--level", choices=["province", "kabupaten"], default="province",
+                   help="which BPS domains to scan; kabupaten is ~500 domains, use --provinces to limit")
+    s.add_argument("--provinces", nargs="*", default=None, help="2-digit province codes to limit the scan")
     s.add_argument("--out", default="data/konghucu/bps_catalogue.csv")
     s.add_argument("--out-vars", default="data/konghucu/bps_catalogue_vars.csv")
     s.set_defaults(func=cmd_bps_search)

@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Sequence
 
 import pandas as pd
 
@@ -68,27 +68,75 @@ def view_static_table(session, domain: str, table_id: str | int, key: str, lang:
     return js.get("data") or {}
 
 
-def search_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2,
-                         log=print) -> pd.DataFrame:
-    rows = []
-    for code, name in PROVINCES.items():
-        try:
-            found = list_static_tables(session, f"{code}00", keyword, key)
-        except RuntimeError as e:  # keep going; one province must not kill the catalogue
-            log(f"  {code} {name}: {e}")
-            continue
-        log(f"  {code} {name}: {len(found)} tables")
-        for r in found:
-            rows.append({"domain": r["domain"], "province_code": code, "table_id": r.get("table_id"),
-                         "title": r.get("title"), "subj": r.get("subj"), "updt_date": r.get("updt_date"),
-                         "excel": r.get("excel")})
-        time.sleep(sleep_s)
-    df = pd.DataFrame(rows, columns=["domain", "province_code", "table_id", "title", "subj", "updt_date", "excel"])
-    # keep tables that are by kabupaten/kota and about religion
-    mask = df["title"].fillna("").map(norm_label).str.contains("agama") & \
-        df["title"].fillna("").map(norm_label).str.contains(r"kabupaten|kota|kab/kota|kabupaten/kota", regex=True)
-    df["by_unit"] = mask
-    return df
+RELIGION_POP_RE = r"(penduduk|umat|pemeluk|penganut)[^|]*agama|agama[^|]*(penduduk|umat|pemeluk|penganut)|agama yang dianut"
+NOT_RELIGION_RE = (r"kementerian agama|kementrian agama|departemen agama|pengadilan|sekolah|madrasah|perguruan|mahasiswa|"
+                   r"guru|murid|penyuluh|pemuka|peribadatan|pemakaman|dprd|desa|nikah|perkara|kegiatan keagamaan|orang rimba|jemaah|haji")
+KEYWORDS = ("agama", "pemeluk", "umat", "penganut")
+
+
+def classify_title(title: object) -> dict:
+    t = norm_label(title)
+    about = bool(re.search(RELIGION_POP_RE, t)) and not re.search(NOT_RELIGION_RE, t)
+    return {"about_religion": about,
+            "by_unit": about and bool(re.search(r"kabupaten|kota|kab/kota|kecamatan", t)),
+            "is_percent": "persentase" in t or "persen" in t}
+
+
+def list_domains(session, key: str, prov_code: Optional[str] = None, lang: str = "ind") -> List[dict]:
+    """BPS domains: provinces ('prov') or the kabupaten/kota of one province ('kabbyprov')."""
+    url = (f"{BASE}/domain/type/kabbyprov/prov/{prov_code}00/key/{key}" if prov_code
+           else f"{BASE}/domain/type/prov/key/{key}")
+    js = _get_json(session, url)
+    data = js.get("data") or []
+    rows = data[1] if len(data) > 1 and isinstance(data[1], list) else []
+    return [{"domain_id": str(r.get("domain_id")), "domain_name": r.get("domain_name"), "domain_url": r.get("domain_url")}
+            for r in rows]
+
+
+def _domains_to_scan(session, key: str, level: str, provinces: Optional[List[str]], log) -> List[tuple]:
+    out = [(f"{c}00", c, n) for c, n in PROVINCES.items() if not provinces or c in provinces]
+    if level == "kabupaten":
+        kab = []
+        for code, name in [(c, n) for c, n in PROVINCES.items() if not provinces or c in provinces]:
+            try:
+                for d in list_domains(session, key, code):
+                    kab.append((d["domain_id"], code, d["domain_name"]))
+            except RuntimeError as e:
+                log(f"  {code} {name}: cannot list kabupaten domains: {e}")
+        log(f"  {len(kab)} kabupaten/kota domains")
+        out = kab
+    return out
+
+
+def search_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2, log=print,
+                         level: str = "province", provinces: Optional[List[str]] = None,
+                         keywords: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """Catalogue static tables about religion. level='province' scans the 38 provincial
+    domains; level='kabupaten' scans every kabupaten/kota domain (slow: ~500 x keywords)."""
+    keywords = list(keywords or ([keyword] if keyword != "agama" else KEYWORDS))
+    rows, seen = [], set()
+    for domain, prov, name in _domains_to_scan(session, key, level, provinces, log):
+        n = 0
+        for kw in keywords:
+            try:
+                found = list_static_tables(session, domain, kw, key)
+            except RuntimeError as e:  # keep going; one domain must not kill the catalogue
+                log(f"  {domain} {name}: {e}")
+                continue
+            for r in found:
+                k = (domain, str(r.get("table_id")))
+                if k in seen:
+                    continue
+                seen.add(k)
+                n += 1
+                rows.append({"domain": domain, "province_code": prov, "domain_name": name, "table_id": r.get("table_id"),
+                             "title": r.get("title"), "subj": r.get("subj"), "updt_date": r.get("updt_date"),
+                             "excel": r.get("excel"), **classify_title(r.get("title"))})
+            time.sleep(sleep_s)
+        log(f"  {domain} {name}: {n} tables")
+    cols = ["domain", "province_code", "domain_name", "table_id", "title", "subj", "updt_date", "excel",
+            "about_religion", "by_unit", "is_percent"]
+    return pd.DataFrame(rows, columns=cols)
 
 
 def _flatten_columns(cols) -> List[str]:
@@ -185,25 +233,33 @@ def list_vars(session, domain: str, keyword: str, key: str, lang: str = "ind") -
     return out
 
 
-def search_vars_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2,
-                              log=print) -> pd.DataFrame:
-    rows = []
-    for code, name in PROVINCES.items():
-        try:
-            found = list_vars(session, f"{code}00", keyword, key)
-        except RuntimeError as e:
-            log(f"  {code} {name}: {e}")
-            continue
-        log(f"  {code} {name}: {len(found)} variables")
-        for r in found:
-            rows.append({"domain": r["domain"], "province_code": code, "var_id": r.get("var_id"),
-                         "title": r.get("title"), "subj": r.get("subj"), "vertical": r.get("vertical"),
-                         "unit": r.get("unit"), "notes": r.get("notes")})
-        time.sleep(sleep_s)
-    df = pd.DataFrame(rows, columns=["domain", "province_code", "var_id", "title", "subj", "vertical", "unit", "notes"])
-    t = df["title"].fillna("").map(norm_label)
-    df["about_religion"] = t.str.contains("agama")
-    return df
+def search_vars_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2, log=print,
+                              level: str = "province", provinces: Optional[List[str]] = None,
+                              keywords: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    keywords = list(keywords or ([keyword] if keyword != "agama" else KEYWORDS))
+    rows, seen = [], set()
+    for domain, prov, name in _domains_to_scan(session, key, level, provinces, log):
+        n = 0
+        for kw in keywords:
+            try:
+                found = list_vars(session, domain, kw, key)
+            except RuntimeError as e:
+                log(f"  {domain} {name}: {e}")
+                continue
+            for r in found:
+                k = (domain, str(r.get("var_id")))
+                if k in seen:
+                    continue
+                seen.add(k)
+                n += 1
+                rows.append({"domain": domain, "province_code": prov, "domain_name": name, "var_id": r.get("var_id"),
+                             "title": r.get("title"), "subj": r.get("subj"), "vertical": r.get("vertical"),
+                             "unit": r.get("unit"), "notes": r.get("notes"), **classify_title(r.get("title"))})
+            time.sleep(sleep_s)
+        log(f"  {domain} {name}: {n} variables")
+    cols = ["domain", "province_code", "domain_name", "var_id", "title", "subj", "vertical", "unit", "notes",
+            "about_religion", "by_unit", "is_percent"]
+    return pd.DataFrame(rows, columns=cols)
 
 
 def view_data(session, domain: str, var_id: str | int, key: str, lang: str = "ind", th: Optional[str] = None) -> dict:

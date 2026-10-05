@@ -210,7 +210,7 @@ def test_bps_404_is_empty_not_fatal():
     s = FakeSession({})  # every URL -> 404
     assert bps_api.list_static_tables(s, "9200", "agama", "k") == []
     df = bps_api.search_all_provinces(s, "k", sleep_s=0, log=lambda *_: None)
-    assert len(df) == 0 and list(df.columns)[:3] == ["domain", "province_code", "table_id"]
+    assert len(df) == 0 and list(df.columns)[:2] == ["domain", "province_code"]
 
 
 def test_parse_dynamic_table():
@@ -242,3 +242,33 @@ def test_dotenv(tmp_path, monkeypatch):
     import os
     assert os.environ["BPS_API_KEY"] == "abc" and os.environ["GOOGLE_MAPS_API_KEY"] == "keep"
     assert info["found"] and info["keys"] == ["BPS_API_KEY"]
+
+
+@pytest.mark.parametrize("title,about,by_unit,pct", [
+    ("Jumlah Penduduk Menurut Kabupaten/Kota dan Agama yang Dianut, 2021", True, True, False),
+    ("Jumlah Umat Agama Menurut Kabupaten/Kota di Provinsi Sumatera Utara, 2022", True, True, False),
+    ("Banyaknya Pemeluk Agama Menurut Golongan Agama dan Kabupaten/Kota 2015", True, True, False),
+    ("Persentase Penduduk Menurut Kabupaten/Kota dan Agama yang Dianut 2016", True, True, True),
+    ("Jumlah Penduduk Menurut Agama yang Dianut", True, False, False),
+    ("Jumlah Sekolah, Guru, dan Murid Madrasah Aliyah (MA) di Bawah Kementerian Agama Menurut Kabupaten/Kota", False, False, False),
+    ("Banyaknya Perkara di Pengadilan Agama Menurut Kabupaten/Kota, 2015", False, False, False),
+    ("Banyaknya Pemuka Agama Menurut Agama dan Kabupaten/Kota di Provinsi Bali", False, False, False),
+    ("Jumlah Tempat Peribadatan Menurut Kabupaten/Kota dan Agama", False, False, False),
+])
+def test_classify_title(title, about, by_unit, pct):
+    c = bps_api.classify_title(title)
+    assert (c["about_religion"], c["by_unit"], c["is_percent"]) == (about, by_unit, pct)
+
+
+def test_search_scans_kabupaten_domains():
+    def router(url, params):
+        if "/domain/type/kabbyprov/" in url:
+            return {"data": [{"total": 2}, [{"domain_id": "6101", "domain_name": "Kab. Sambas"},
+                                           {"domain_id": "6172", "domain_name": "Kota Singkawang"}]]}
+        if "/list/model/statictable" in url and "/domain/6172/" in url and "/keyword/agama/" in url:
+            return {"data-availability": "available", "data": [{"pages": 1}, [
+                {"table_id": "7", "title": "Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut, 2022"}]]}
+        return {"data-availability": "list-not-available", "data": []}
+    s = FakeSession({"webapi.bps.go.id": router})
+    df = bps_api.search_all_provinces(s, "k", level="kabupaten", provinces=["61"], sleep_s=0, log=lambda *_: None)
+    assert len(df) == 1 and df.iloc[0]["domain"] == "6172" and df.iloc[0]["by_unit"]
