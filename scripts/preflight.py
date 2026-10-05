@@ -13,6 +13,11 @@ import sys
 
 import requests
 
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
+from konghucu.envfile import load_dotenv  # noqa: E402
+
+load_dotenv()
+
 CHECKS = []
 
 

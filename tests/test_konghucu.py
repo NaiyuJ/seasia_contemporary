@@ -230,3 +230,14 @@ def test_parse_dynamic_table():
     assert df[(df["unit_name"] == "Sambas") & (df["religion"] == "total")]["count"].item() == 551234
     assert len(df[df["year"] == 2021]) == 1          # only the cells that exist
     assert bps_api.parse_dynamic({"data-availability": "list-not-available"}, "61", "x").empty
+
+
+def test_dotenv(tmp_path, monkeypatch):
+    from konghucu.envfile import load_dotenv
+    f = tmp_path / ".env"
+    f.write_text("# c\nBPS_API_KEY='abc'\nexport GOOGLE_MAPS_API_KEY=xyz\nBAD\n")
+    monkeypatch.delenv("BPS_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "keep")
+    load_dotenv(f)
+    import os
+    assert os.environ["BPS_API_KEY"] == "abc" and os.environ["GOOGLE_MAPS_API_KEY"] == "keep"

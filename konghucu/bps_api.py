@@ -20,9 +20,11 @@ BASE = "https://webapi.bps.go.id/v1/api"
 
 
 def get_key(key: Optional[str] = None) -> str:
+    from .envfile import load_dotenv
+    load_dotenv()
     key = key or os.environ.get("BPS_API_KEY")
     if not key:
-        raise RuntimeError("set BPS_API_KEY (free at https://webapi.bps.go.id); never paste it into chat")
+        raise RuntimeError("set BPS_API_KEY in the environment or in <repo>/.env (free at https://webapi.bps.go.id); never paste it into chat")
     return key
 
 
