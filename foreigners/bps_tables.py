@@ -19,7 +19,12 @@ def search_all_provinces(session, key: str, keywords=KEYWORDS, sleep_s: float = 
     rows, seen = [], set()
     for code in PROVINCES:
         for kw in keywords:
-            for r in list_static_tables(session, f"{code}00", kw, key):
+            try:
+                found = list_static_tables(session, f"{code}00", kw, key)
+            except RuntimeError as e:
+                print(f"  {code} '{kw}': {e}")
+                continue
+            for r in found:
                 k = (r["domain"], r.get("table_id"))
                 if k in seen:
                     continue

@@ -34,6 +34,8 @@ def _get_json(session, url: str, retries: int = 3) -> dict:
         if r.status_code in (429, 500, 502, 503):
             time.sleep(2 ** attempt)
             continue
+        if r.status_code == 404:  # domain not served by the API (e.g. some new provinces): no data
+            return {"status": "NOT_FOUND", "data-availability": "not-available", "data": []}
         raise RuntimeError(f"HTTP {r.status_code} for {url}")
     raise RuntimeError(f"gave up on {url}")
 
@@ -62,10 +64,17 @@ def view_static_table(session, domain: str, table_id: str | int, key: str, lang:
     return js.get("data") or {}
 
 
-def search_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2) -> pd.DataFrame:
+def search_all_provinces(session, key: str, keyword: str = "agama", sleep_s: float = 0.2,
+                         log=print) -> pd.DataFrame:
     rows = []
-    for code in PROVINCES:
-        for r in list_static_tables(session, f"{code}00", keyword, key):
+    for code, name in PROVINCES.items():
+        try:
+            found = list_static_tables(session, f"{code}00", keyword, key)
+        except RuntimeError as e:  # keep going; one province must not kill the catalogue
+            log(f"  {code} {name}: {e}")
+            continue
+        log(f"  {code} {name}: {len(found)} tables")
+        for r in found:
             rows.append({"domain": r["domain"], "province_code": code, "table_id": r.get("table_id"),
                          "title": r.get("title"), "subj": r.get("subj"), "updt_date": r.get("updt_date"),
                          "excel": r.get("excel")})

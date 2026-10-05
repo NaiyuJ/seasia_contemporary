@@ -204,3 +204,10 @@ def test_harmonize_and_panel(tmp_path):
     assert bps_row["konghucu"] == 1234 and abs(bps_row["konghucu_share"] - 1234 / 551234) < 1e-12
     arc_row = sambas[sambas["sources"] == "arcgis"].iloc[0]
     assert arc_row["konghucu"] == 1300 and arc_row["total"] == 560000
+
+
+def test_bps_404_is_empty_not_fatal():
+    s = FakeSession({})  # every URL -> 404
+    assert bps_api.list_static_tables(s, "9200", "agama", "k") == []
+    df = bps_api.search_all_provinces(s, "k", sleep_s=0, log=lambda *_: None)
+    assert len(df) == 0 and list(df.columns)[:3] == ["domain", "province_code", "table_id"]
