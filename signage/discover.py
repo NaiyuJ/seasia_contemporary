@@ -30,10 +30,11 @@ COLUMNS = ["point_id", "unit_id", "query_lat", "query_lon", "bearing", "pano_id"
 
 def get_api_key(key: Optional[str] = None) -> str:
     from konghucu.envfile import load_dotenv
-    load_dotenv()
+    info = load_dotenv()
     key = key or os.environ.get("GOOGLE_MAPS_API_KEY")
     if not key:
-        raise RuntimeError("set GOOGLE_MAPS_API_KEY in the environment or in <repo>/.env (never paste it into chat or code)")
+        raise RuntimeError("GOOGLE_MAPS_API_KEY is not set. Put it in the environment or in "
+                           f"{info['path']} (.env found: {info['found']}, keys loaded: {info['keys']}); never paste it into chat.")
     return key
 
 

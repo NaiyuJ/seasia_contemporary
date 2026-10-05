@@ -236,8 +236,9 @@ def test_dotenv(tmp_path, monkeypatch):
     from konghucu.envfile import load_dotenv
     f = tmp_path / ".env"
     f.write_text("# c\nBPS_API_KEY='abc'\nexport GOOGLE_MAPS_API_KEY=xyz\nBAD\n")
-    monkeypatch.delenv("BPS_API_KEY", raising=False)
+    monkeypatch.setenv("BPS_API_KEY", "")          # exported but empty: must be overridden
     monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "keep")
-    load_dotenv(f)
+    info = load_dotenv(f)
     import os
     assert os.environ["BPS_API_KEY"] == "abc" and os.environ["GOOGLE_MAPS_API_KEY"] == "keep"
+    assert info["found"] and info["keys"] == ["BPS_API_KEY"]

@@ -9,10 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def load_dotenv(path: Path = ROOT / ".env") -> None:
+def load_dotenv(path: Path = ROOT / ".env") -> dict:
+    """Returns {"path": str, "found": bool, "keys": [names loaded]} for diagnostics."""
+    info = {"path": str(path), "found": path.exists(), "keys": []}
     if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
+        return info
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -20,4 +22,7 @@ def load_dotenv(path: Path = ROOT / ".env") -> None:
         k, v = k.strip(), v.strip().strip('"').strip("'")
         if k.startswith("export "):
             k = k[7:].strip()
-        os.environ.setdefault(k, v)
+        if v and not os.environ.get(k):  # an empty exported variable counts as unset
+            os.environ[k] = v
+            info["keys"].append(k)
+    return info
