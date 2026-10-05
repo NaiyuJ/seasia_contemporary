@@ -8,6 +8,11 @@ from pathlib import Path
 
 import pandas as pd
 
+
+def _out(path):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return path
+
 from . import aggregate, classify, discover, fetch, ocr, sample, validate
 
 
@@ -20,7 +25,7 @@ def cmd_sample(a):
         raise SystemExit("give --polygons <geojson> or --units <'Kota X, Indonesia'> ...")
     polys = sample.polygons_from_names(a.units) if a.units else sample.load_polygons(a.polygons, a.id_field)
     df = sample.sample_points(polys, a.roads, a.spacing, a.max_per_unit, a.seed)
-    df.to_csv(a.out, index=False)
+    df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} points in {df['unit_id'].nunique()} units -> {a.out}")
 
 
@@ -32,7 +37,7 @@ def cmd_discover(a):
         df = discover.discover_metadata(points, key, a.radius, existing=existing)
     else:
         df = discover.discover_jsapi(points, key, a.radius, existing=existing)
-    df.to_csv(a.out, index=False)
+    df.to_csv(_out(a.out), index=False)
     ok = df[df["status"] == "OK"]
     print(f"{len(df)} rows, {ok['pano_id'].nunique()} unique panos, "
           f"{ok['point_id'].nunique()}/{points['point_id'].nunique()} points with imagery -> {a.out}")
@@ -51,7 +56,7 @@ def cmd_fetch(a):
     existing = _read_if_exists(Path(a.out)) if a.resume else None
     df = fetch.fetch_images(panos, a.images_dir, key, heading_offsets=a.headings, size=a.size,
                             fov=a.fov, pitch=a.pitch, max_images=a.max_images, existing=existing)
-    df.to_csv(a.out, index=False)
+    df.to_csv(_out(a.out), index=False)
     print(df["status"].value_counts().to_string())
 
 
@@ -62,8 +67,8 @@ def cmd_ocr(a):
     boxes, imgs = ocr.run_ocr(images, det, min_conf=a.min_conf, existing_images=existing, limit=a.limit)
     if a.resume and Path(a.out_boxes).exists():
         boxes = pd.concat([pd.read_csv(a.out_boxes), boxes], ignore_index=True)
-    boxes.to_csv(a.out_boxes, index=False)
-    imgs.to_csv(a.out_images, index=False)
+    boxes.to_csv(_out(a.out_boxes), index=False)
+    imgs.to_csv(_out(a.out_images), index=False)
     print(f"{len(imgs)} images, {int((imgs['n_cjk_boxes'] > 0).sum())} with CJK text, "
           f"{len(boxes)} boxes -> {a.out_boxes}")
 
@@ -71,8 +76,8 @@ def cmd_ocr(a):
 def cmd_classify(a):
     boxes = classify.classify_boxes(pd.read_csv(a.ocr_boxes))
     imgs = classify.image_type_counts(boxes, pd.read_csv(a.ocr_images))
-    boxes.to_csv(a.out_boxes, index=False)
-    imgs.to_csv(a.out_images, index=False)
+    boxes.to_csv(_out(a.out_boxes), index=False)
+    imgs.to_csv(_out(a.out_images), index=False)
     print(boxes["sign_type"].value_counts(dropna=True).to_string())
     print(f"-> {a.out_boxes}, {a.out_images} (pass the latter to aggregate --ocr-images)")
 

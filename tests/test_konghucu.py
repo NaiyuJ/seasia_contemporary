@@ -211,3 +211,22 @@ def test_bps_404_is_empty_not_fatal():
     assert bps_api.list_static_tables(s, "9200", "agama", "k") == []
     df = bps_api.search_all_provinces(s, "k", sleep_s=0, log=lambda *_: None)
     assert len(df) == 0 and list(df.columns)[:3] == ["domain", "province_code", "table_id"]
+
+
+def test_parse_dynamic_table():
+    js = {"data-availability": "available",
+          "vervar": [{"val": 6101, "label": "Sambas"}, {"val": 6172, "label": "Kota Singkawang"}, {"val": 6100, "label": "Kalimantan Barat"}],
+          "var": [{"val": 55, "label": "Jumlah Penduduk Menurut Agama"}],
+          "turvar": [{"val": 1, "label": "Islam"}, {"val": 6, "label": "Khonghucu"}, {"val": 9, "label": "Jumlah"}],
+          "tahun": [{"val": 120, "label": "2020"}, {"val": 121, "label": "2021"}],
+          "turtahun": [{"val": 0, "label": ""}],
+          "datacontent": {"6101551120" + "0": 500000, "6101556120" + "0": "1.234", "6101559120" + "0": 551234,
+                          "6172556121" + "0": 5678, "6100556120" + "0": 6912}}
+    df = bps_api.parse_dynamic(js, "61", "bpsvar:6100:55")
+    k = df[df["religion"] == "konghucu"]
+    assert k[(k["unit_name"] == "Sambas") & (k["year"] == 2020)]["count"].item() == 1234
+    assert k[(k["unit_name"] == "Kota Singkawang") & (k["year"] == 2021)]["count"].item() == 5678
+    assert k[k["unit_name"] == "__PROVINCE__"]["count"].item() == 6912
+    assert df[(df["unit_name"] == "Sambas") & (df["religion"] == "total")]["count"].item() == 551234
+    assert len(df[df["year"] == 2021]) == 1          # only the cells that exist
+    assert bps_api.parse_dynamic({"data-availability": "list-not-available"}, "61", "x").empty

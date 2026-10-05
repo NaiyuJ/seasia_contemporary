@@ -6,6 +6,11 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+
+
+def _out(path):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return path
 import requests
 
 from konghucu.bps_api import get_key
@@ -17,7 +22,7 @@ from .nationality import LONG_COLUMNS
 
 def cmd_bps_search(a):
     df = bps_tables.search_all_provinces(requests.Session(), get_key())
-    df.to_csv(a.out, index=False)
+    df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} tables, {int(df['by_nationality'].sum())} by nationality -> {a.out}")
     print(df[df["by_nationality"]][["domain", "table_id", "title"]].to_string(index=False))
 
@@ -27,14 +32,14 @@ def cmd_bps_fetch(a):
     if not a.all:
         cat = cat[cat["by_nationality"]]
     df = bps_tables.fetch_tables(requests.Session(), cat, get_key(), raw_dir=a.raw_dir)
-    df.to_csv(a.out, index=False)
+    df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} rows; CHN rows: {int((df['nationality'] == 'CHN').sum())} -> {a.out}")
     print(df.groupby(["region_level", "permit_type"], dropna=False).size().to_string())
 
 
 def cmd_ckan_search(a):
     df = ckan.search_all(requests.Session(), portals=a.portals)
-    df.to_csv(a.out, index=False)
+    df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} tabular resources -> {a.out}")
     print(df[["organization", "title", "format", "modified"]].to_string(index=False))
 
@@ -57,7 +62,7 @@ def cmd_ckan_fetch(a):
         except Exception as e:  # noqa: BLE001
             print(f"{rec.title}: FAILED {type(e).__name__}: {e}")
     out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS)
-    out.to_csv(a.out, index=False)
+    out.to_csv(_out(a.out), index=False)
 
 
 def cmd_pdf_wna(a):
@@ -70,7 +75,7 @@ def cmd_pdf_wna(a):
         except Exception as e:  # noqa: BLE001
             print(f"{p}: FAILED {type(e).__name__}: {e}")
     out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS)
-    out.to_csv(a.out, index=False)
+    out.to_csv(_out(a.out), index=False)
 
 
 def cmd_harmonize(a):
@@ -78,10 +83,10 @@ def cmd_harmonize(a):
     codes = load_code_table(a.codes) if a.codes else None
     cw = harmonize.load_kanim_crosswalk(a.kanim_crosswalk) if a.kanim_crosswalk else None
     alloc = harmonize.allocate_to_kabupaten(long, cw, codes)
-    alloc.to_csv(a.out_long, index=False)
+    alloc.to_csv(_out(a.out_long), index=False)
     prov = long[long["region_level"] == "province"]
     panel = harmonize.build_panel(alloc, prov)
-    panel.to_csv(a.out_panel, index=False)
+    panel.to_csv(_out(a.out_panel), index=False)
     unmatched = alloc[alloc["unit_code"].isna()]["region_name"].drop_duplicates()
     print(f"{len(alloc)} kabupaten-level rows, {int(alloc['unit_code'].notna().sum())} with a code; "
           f"{len(unmatched)} unmatched region names (first 30 below) -> {a.out_long}")
