@@ -581,3 +581,10 @@ def test_konghucu_breaks():
                           "konghucu_ref": ["a", "b", "a"]})
     br = harmonize.konghucu_breaks(panel)
     assert len(br) == 2 and br.iloc[0]["ref_b"] == "b"
+
+
+def test_konghucu_breaks_ignores_tiny_counts():
+    panel = pd.DataFrame({"unit_code": ["5101"] * 2, "year": [2010, 2025], "konghucu": [2, 17],
+                          "konghucu_ref": ["a", "b"]})
+    assert harmonize.konghucu_breaks(panel).empty
+    assert len(harmonize.konghucu_breaks(panel, min_count=10)) == 1

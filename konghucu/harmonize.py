@@ -109,10 +109,11 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)
 
 
-def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0) -> pd.DataFrame:
+def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0, min_count: float = 20) -> pd.DataFrame:
     """Units whose konghucu count jumps by more than `ratio` between consecutive observed
     years: usually a change of source definition (Kemenag adherent counts vs Dukcapil
-    ID-card registration), not a real change. One row per jump with both refs."""
+    ID-card registration), not a real change. One row per jump with both refs. Jumps
+    where both counts are below `min_count` are ignored (2 -> 17 is noise, not a break)."""
     if "konghucu" not in panel.columns:
         return pd.DataFrame()
     p = panel.dropna(subset=["konghucu"]).sort_values(["unit_code", "year"])
@@ -121,6 +122,7 @@ def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0) -> pd.DataFrame:
         prev = None
         for r in g.itertuples(index=False):
             if prev is not None and min(prev.konghucu, r.konghucu) > 0 and \
+                    max(prev.konghucu, r.konghucu) >= min_count and \
                     max(prev.konghucu, r.konghucu) / min(prev.konghucu, r.konghucu) > ratio:
                 rows.append({"unit_code": code, "year_a": prev.year, "konghucu_a": prev.konghucu, "ref_a": prev.konghucu_ref,
                              "year_b": r.year, "konghucu_b": r.konghucu, "ref_b": r.konghucu_ref})
