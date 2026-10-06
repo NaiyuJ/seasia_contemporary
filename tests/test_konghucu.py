@@ -553,3 +553,8 @@ def test_bare_name_prefers_kabupaten_and_national_fallback(tmp_path):
     ])
     out = harmonize.attach_codes(long, ct).set_index("count")["unit_code"]
     assert out[1] == "3201" and out[2] == "9403" and out[3] == "7110" and out[4] == "3308"
+
+
+def test_census_vintage_labels_are_not_units():
+    from konghucu.religion import is_unit_name
+    assert not is_unit_name("SP2010") and not is_unit_name("SP 1971") and is_unit_name("Karangasem")

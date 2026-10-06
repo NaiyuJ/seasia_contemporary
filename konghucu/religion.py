@@ -129,6 +129,8 @@ def is_unit_name(name: object) -> bool:
     s = norm_label(strip_tags(name))
     if not re.search(r"[a-z]", s) or len(s) > 45:
         return False
+    if re.fullmatch(r"(sp|sensus|supas|susenas)\s?\d{4}", s):  # census vintage labels used as row names
+        return False
     return not re.search(r"sumber|source|catatan|note|keterangan|population by|penduduk .* menurut|jumlah penduduk", s)
 
 
