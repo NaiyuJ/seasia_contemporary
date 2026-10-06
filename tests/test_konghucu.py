@@ -644,3 +644,62 @@ def test_one_table_per_cell():
     assert len(panel) == 1
     r = panel.iloc[0]
     assert r["ref"] == "bpsvar:1200:2" and r["islam"] == 900 and r["kristen"] == 90 and r["konghucu"] == 5
+
+
+def _long(cells):
+    rows = []
+    for code, year, ref, rels, total in cells:
+        for rel, n in rels.items():
+            rows.append(dict(source="bps", province_code=code[:2], unit_code=code, unit_name="x", level="kota",
+                             religion=rel, year=year, semester=None, count=n, ref=ref))
+        if total is not None:
+            rows.append(dict(source="bps", province_code=code[:2], unit_code=code, unit_name="x", level="kota",
+                             religion="total", year=year, semester=None, count=total, ref=ref))
+    return pd.DataFrame(rows)
+
+
+def test_cell_quality_rules():
+    big = {"islam": 90000, "kristen": 8000, "katolik": 1500, "hindu": 300, "buddha": 200}
+    long = _long([
+        ("7204", 2013, "a", {"islam": 39.47, "kristen": 54.93, "katolik": 0.57, "hindu": 0.13, "buddha": 4.89}, None),
+        ("3402", 2020, "b", {k: 100 for k in big}, None),
+        ("3578", 2012, "c", {}, 4567966),
+        ("1613", 2014, "d", {"kristen": 796, "katolik": 306, "hindu": 755}, None),
+        ("1403", 2023, "e", big, 30),
+        ("1275", 2021, "f", big, 100500),
+    ])
+    panel = harmonize.build_panel(long)
+    got = panel.set_index("unit_code")
+    assert set(got.index) == {"1613", "1403", "1275"}  # percent, placeholder and total-only cells dropped
+    assert got.loc["1613", "quality"] == "partial" and pd.isna(got.loc["1613", "total"])
+    assert got.loc["1403", "total"] == sum(big.values()) and got.loc["1403", "total_reported"] == 30
+    assert got.loc["1275", "total"] == 100500 and not got.loc["1275", "total_is_sum"]
+
+
+def test_population_anchor_and_outliers():
+    big = {"islam": 90000, "kristen": 8000, "katolik": 1500, "buddha": 200, "konghucu": 50}
+    half = {k: v / 2 for k, v in big.items()}
+    long = _long([("1275", 2020, "a", big, None), ("1275", 2021, "b", half, None), ("1275", 2022, "c", big, None),
+                  ("7401", 2022, "d", big, None)])
+    pop = pd.DataFrame({"unit_code": ["1275", "1275", "1275", "7401"], "year": [2020, 2021, 2022, 2022],
+                        "population": [100000, 100000, 100000, 100000]})
+    panel = harmonize.build_panel(long, population=pop)
+    assert panel["population"].notna().all()
+    r = panel[(panel.unit_code == "1275") & (panel.year == 2021)].iloc[0]
+    assert abs(r["konghucu_share_pop"] - 25 / 100000) < 1e-9 and abs(r["total_to_pop"] - 0.49875) < 1e-6
+    outl = harmonize.total_outliers(panel)
+    assert list(zip(outl["unit_code"], outl["year"], outl["anchor_kind"])) == [("1275", 2021, "population")]
+    # without a population file the unit's median is the anchor, and single-year units are skipped
+    outl2 = harmonize.total_outliers(harmonize.build_panel(long))
+    assert list(zip(outl2["unit_code"], outl2["year"], outl2["anchor_kind"])) == [("1275", 2021, "median")]
+    # a pre-2000 census count is not an outlier
+    old = _long([("1275", 1980, "z", half, None), ("1275", 2020, "a", big, None), ("1275", 2022, "c", big, None)])
+    assert harmonize.total_outliers(harmonize.build_panel(old)).empty
+
+
+def test_shipped_drop_rules_parse_and_each_sets_a_field():
+    rules = harmonize.load_drop_cells()
+    assert len(rules) >= 20
+    for r in rules.itertuples(index=False):
+        assert (r.unit_code is not None and not pd.isna(r.unit_code)) or not pd.isna(r.year) \
+            or (r.ref is not None and not pd.isna(r.ref))

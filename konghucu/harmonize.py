@@ -111,8 +111,34 @@ def apply_drop_rules(df: pd.DataFrame, rules: pd.DataFrame) -> pd.Series:
     return hit
 
 
+MAJOR = ["islam", "kristen", "katolik"]
+RELIGIONS = ["islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepercayaan", "lainnya"]
+
+
+def cell_quality(wide: pd.DataFrame) -> pd.Series:
+    """Label unit-year cells that cannot be used as counts, from their own values:
+    'percent'   religions sum to about 100 and none exceeds 100
+    'placeholder' four or more religions carry the identical value (e.g. all 100)
+    'no_religions' only a total is reported
+    'partial'   one of islam/kristen/katolik is missing, so a summed total is not a population
+    '' otherwise."""
+    rel = [c for c in RELIGIONS if c in wide.columns]
+    vals = wide[rel]
+    n = vals.notna().sum(axis=1)
+    s = vals.sum(axis=1, min_count=1)
+    mx = vals.max(axis=1)
+    q = pd.Series("", index=wide.index)
+    q[(n >= 3) & s.between(99, 101) & (mx <= 100)] = "percent"
+    same = vals.apply(lambda r: r.dropna().value_counts().max() >= 4 if r.notna().sum() >= 4 else False, axis=1)
+    q[(q == "") & same] = "placeholder"
+    q[(q == "") & (n == 0)] = "no_religions"
+    major = [c for c in MAJOR if c in wide.columns]
+    q[(q == "") & (wide[major].isna().any(axis=1) if major else False)] = "partial"
+    return q
+
+
 def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs: Optional[set] = None,
-                drop_cells: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+                drop_cells: Optional[pd.DataFrame] = None, population: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """unit x year (x semester) wide table with one column per religion, plus
     konghucu share. When several sources cover the same cell, `prefer` orders them
     (default: arcgis, pdf, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
@@ -156,15 +182,34 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     wide = wide.merge(kref.reset_index(), on=["unit_code", "year", "semester"], how="left")
     ref = df.groupby(["unit_code", "year", "semester"])["ref"].first().rename("ref")
     wide = wide.merge(ref.reset_index(), on=["unit_code", "year", "semester"], how="left")
-    rel_cols = [c for c in wide.columns if c in {"islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepercayaan", "lainnya"}]
+    wide["quality"] = cell_quality(wide)
+    bad_q = wide["quality"].isin(["percent", "placeholder", "no_religions"])
+    if bad_q.any():
+        print("build_panel: dropping unusable cells: " + ", ".join(f"{k}={v}" for k, v in
+                                                                     wide.loc[bad_q, "quality"].value_counts().items()))
+    wide = wide[~bad_q].copy()
+    rel_cols = [c for c in RELIGIONS if c in wide.columns]
     summed = wide[rel_cols].sum(axis=1, min_count=1)
+    summed[wide["quality"] == "partial"] = float("nan")  # a sum without a major religion is not a population
     if "total" not in wide.columns:
-        wide["total"] = summed
-    else:  # cells whose source had no 'Jumlah' category (most dynamic tables): sum the religions
-        wide["total"] = wide["total"].fillna(summed)
-    wide["total_is_sum"] = wide["total"].eq(summed)  # True when total was not reported by the source
+        wide["total"] = float("nan")
+    wide["total_reported"] = wide["total"]
+    # a reported total that disagrees with the religions by more than 10% is a wrong cell
+    # in the source (Indragiri Hilir 2023 reports 30); the sum is then the better number
+    bad_total = wide["total"].notna() & summed.notna() & ~(wide["total"] / summed).between(0.9, 1.1)
+    wide.loc[bad_total, "total"] = float("nan")
+    wide["total"] = wide["total"].fillna(summed)
+    wide["total_is_sum"] = wide["total"].notna() & wide["total"].eq(summed)
     if "konghucu" in wide.columns:
         wide["konghucu_share"] = wide["konghucu"] / wide["total"]
+    if population is not None and len(population):
+        pop = population[["unit_code", "year", "population"]].copy()
+        pop["unit_code"] = pop["unit_code"].astype(str).str.zfill(4)
+        pop["year"] = pop["year"].astype(int)
+        wide = wide.merge(pop, on=["unit_code", "year"], how="left")
+        wide["total_to_pop"] = wide["total"] / wide["population"]
+        if "konghucu" in wide.columns:
+            wide["konghucu_share_pop"] = wide["konghucu"] / wide["population"]
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)
 
 
@@ -189,20 +234,27 @@ def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0, min_count: float = 
     return pd.DataFrame(rows)
 
 
-def total_outliers(panel: pd.DataFrame, tol: float = 0.35, min_obs: int = 3) -> pd.DataFrame:
-    """Unit-years whose total is more than `tol` away from the unit's median total across
-    years. A kabupaten does not gain or lose a third of its population in a few years, so
-    these are almost always one religion's count copied from the wrong row in the source."""
+def total_outliers(panel: pd.DataFrame, tol: float = 0.35, min_obs: int = 3, min_year: int = 2000) -> pd.DataFrame:
+    """Unit-years whose religion total is more than `tol` away from the official population
+    (column `population`, when the panel carries one) or, failing that, from the unit's
+    median total across years. A kabupaten does not gain or lose a third of its population
+    in a few years, so these are almost always one religion copied from the wrong row.
+    Years before `min_year` are left alone: a 1980 census count is legitimately different."""
     p = panel.dropna(subset=["total"])
+    p = p[p["year"] >= min_year]
     rows = []
     for code, g in p.groupby("unit_code"):
-        if len(g) < min_obs:
-            continue
         med = g["total"].median()
         for r in g.itertuples(index=False):
-            if med > 0 and abs(r.total / med - 1) > tol:
-                rows.append({"unit_code": code, "year": r.year, "total": r.total, "median_total": med,
-                             "ratio": round(r.total / med, 2), "ref": getattr(r, "ref", None)})
+            if "population" in g.columns and pd.notna(getattr(r, "population", None)) and r.population > 0:
+                anchor, kind = r.population, "population"
+            elif len(g) >= min_obs and med > 0:
+                anchor, kind = med, "median"
+            else:
+                continue
+            if abs(r.total / anchor - 1) > tol:
+                rows.append({"unit_code": code, "year": r.year, "total": r.total, "anchor": anchor, "anchor_kind": kind,
+                             "ratio": round(r.total / anchor, 2), "ref": getattr(r, "ref", None)})
     out = pd.DataFrame(rows)
     if len(out):
         rel = [c for c in ["islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "lainnya"] if c in panel.columns]

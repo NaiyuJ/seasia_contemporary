@@ -84,7 +84,8 @@ def view_static_table(session, domain: str, table_id: str | int, key: str, lang:
 
 RELIGION_POP_RE = r"(penduduk|umat|pemeluk|penganut)[^|]*agama|agama[^|]*(penduduk|umat|pemeluk|penganut)|agama yang dianut"
 NOT_RELIGION_RE = (r"kementerian agama|kementrian agama|departemen agama|pengadilan|sekolah|madrasah|perguruan|mahasiswa|"
-                   r"guru|murid|penyuluh|pemuka|peribadatan|pemakaman|dprd|desa|nikah|perkara|kegiatan keagamaan|orang rimba|jemaah|haji")
+                   r"guru|murid|penyuluh|pemuka|peribadatan|pemakaman|dprd|desa|nikah|perkara|kegiatan keagamaan|orang rimba|jemaah|haji|"
+                   r"organisasi|lembaga|yayasan|rohaniwan|tokoh")
 KEYWORDS = ("agama", "pemeluk", "umat", "penganut")
 
 

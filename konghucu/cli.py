@@ -13,7 +13,7 @@ def _out(path):
     return path
 import requests
 
-from . import arcgis, bps_api, harmonize, pdf_tables
+from . import arcgis, bps_api, harmonize, pdf_tables, population
 from .religion import LONG_COLUMNS
 
 
@@ -226,6 +226,52 @@ def cmd_pdf_extract(a):
     df.to_csv(_out(a.out), index=False)
 
 
+def cmd_bps_population(a):
+    """Find and fetch each province's official population-by-kabupaten series."""
+    key = bps_api.get_key()
+    s = requests.Session()
+    pd.set_option("display.max_colwidth", 90)
+    pd.set_option("display.width", 200)
+    cat_path = Path(a.catalogue)
+    if a.search or not cat_path.exists():
+        print("== population variables in province domains")
+        cat = population.search_population_vars(s, key, provinces=a.provinces)
+        cat.to_csv(_out(a.catalogue), index=False)
+    else:
+        cat = pd.read_csv(cat_path, dtype=str)
+        cat["about_population"] = cat["about_population"].astype(str).str.lower() == "true"
+    sel = cat[cat["about_population"]]
+    if a.var_ids:
+        sel = cat[cat["var_id"].astype(str).isin(a.var_ids)]
+    print(f"{len(cat)} variables, {len(sel)} selected -> {a.catalogue}")
+    print(sel[["domain", "domain_name", "var_id", "unit", "title"]].to_string(index=False))
+    missing = [f"{c} {n}" for c, n in bps_api.PROVINCES.items()
+               if c not in set(sel["province_code"]) and (not a.provinces or c in a.provinces)]
+    if missing:
+        print(f"== provinces with no candidate: {'; '.join(missing)}")
+        print("   look at the full catalogue and pass the right ids with --var-ids")
+    if a.search_only:
+        return
+    print("== fetching")
+    long = population.fetch_population(s, sel, key, raw_dir=a.raw_dir)
+    codes = harmonize.load_code_table(a.codes)
+    long = harmonize.attach_codes(long, codes)
+    long.to_csv(_out(a.out_long), index=False)
+    um = long[~long["matched"]]
+    if len(um):
+        print(f"{um['unit_name'].nunique()} names without a code (not in the population file):")
+        print("  " + "; ".join(sorted(set(um['unit_name']))[:40]))
+    pop = population.reconcile_population(long)
+    pop.to_csv(_out(a.out), index=False)
+    print(f"{len(pop)} unit-years, {pop['unit_code'].nunique()} units, years {pop['year'].min()}..{pop['year'].max()} -> {a.out}")
+    print("units per year:")
+    print(pop.groupby("year")["unit_code"].nunique().to_string())
+    dis = pop[pop["spread"] > 1.05]
+    if len(dis):
+        print(f"{len(dis)} unit-years where BPS series disagree by >5% (median used):")
+        print(dis.head(30).to_string(index=False))
+
+
 def cmd_harmonize(a):
     codes = harmonize.load_code_table(a.codes)
     long = pd.concat([pd.read_csv(p, dtype={"province_code": str, "unit_code": str}) for p in a.inputs],
@@ -234,7 +280,13 @@ def cmd_harmonize(a):
     unmatched = long[~long["matched"] & (long["unit_name"] != "__PROVINCE__")]
     long.to_csv(_out(a.out_long), index=False)
     drop = harmonize.load_drop_cells(a.drop_cells)
-    panel = harmonize.build_panel(long, exclude_refs=set(a.exclude_refs or ()), drop_cells=drop)
+    pop = None
+    if a.population and Path(a.population).exists():
+        pop = pd.read_csv(a.population, dtype={"unit_code": str})
+        print(f"population anchor: {len(pop)} unit-years from {a.population}")
+    elif a.population:
+        print(f"no population file at {a.population}; run `python -m konghucu.cli bps-population` to build it")
+    panel = harmonize.build_panel(long, exclude_refs=set(a.exclude_refs or ()), drop_cells=drop, population=pop)
     panel.to_csv(_out(a.out_panel), index=False)
     kab_rows = long[long["level"] != "kecamatan"]
     print(f"{len(long)} rows; non-kecamatan rows {len(kab_rows)}, of which matched to a code {int(kab_rows['matched'].sum())} "
@@ -258,12 +310,16 @@ def cmd_harmonize(a):
     out_outl = Path(a.out_panel).with_name("total_outliers.csv")
     outl.to_csv(_out(str(out_outl)), index=False)
     if len(outl):
-        print(f"unit-years whose total is >35% off the unit's median ({len(outl)}; a religion count copied from "
-              f"the wrong row in the source; add to konghucu/drop_cells.csv after checking) -> {out_outl}")
+        kinds = ", ".join(f"{k}={v}" for k, v in outl["anchor_kind"].value_counts().items())
+        print(f"unit-years whose total is >35% off the anchor ({len(outl)}; anchor: {kinds}; a religion count "
+              f"copied from the wrong row in the source; add to konghucu/drop_cells.csv after checking) -> {out_outl}")
         pd.set_option("display.width", 250)
         print(outl.to_string(index=False, float_format=lambda v: f"{v:,.0f}" if abs(v) >= 100 else f"{v:.2f}"))
     else:
-        print("no unit-year totals >35% off the unit's median")
+        print("no unit-year totals >35% off the anchor")
+    if "population" in panel.columns:
+        cov = panel["population"].notna().mean()
+        print(f"panel cells with an official population: {cov:.0%}")
 
 
 def build_parser():
@@ -328,12 +384,26 @@ def build_parser():
     e.add_argument("--out", default="data/konghucu/pdf_long.csv")
     e.set_defaults(func=cmd_pdf_extract)
 
+    pp = sp.add_parser("bps-population", help="official population by kabupaten/kota from BPS dynamic tables")
+    pp.add_argument("--provinces", nargs="*", help="2-digit province codes; default all")
+    pp.add_argument("--search", action="store_true", help="rescan the province domains even if the catalogue exists")
+    pp.add_argument("--search-only", action="store_true", help="list candidate variables and stop")
+    pp.add_argument("--var-ids", nargs="*", help="fetch exactly these var ids instead of the title-based selection")
+    pp.add_argument("--catalogue", default="data/konghucu/bps_population_vars.csv")
+    pp.add_argument("--codes", default="data/raw/bps_kabupaten_codes.csv")
+    pp.add_argument("--raw-dir", default="data/raw/bps")
+    pp.add_argument("--out-long", default="data/konghucu/population_long.csv")
+    pp.add_argument("--out", default="data/konghucu/population.csv")
+    pp.set_defaults(func=cmd_bps_population)
+
     h = sp.add_parser("harmonize", help="attach BPS codes and build the unit x year panel")
     h.add_argument("--codes", required=True, help="CSV with unit_code, unit_name")
     h.add_argument("--inputs", nargs="+", required=True, help="long CSVs from the fetch commands")
     h.add_argument("--exclude-refs", nargs="*", default=None, help="table refs to drop in addition to the built-in bad list")
     h.add_argument("--out-long", default="data/konghucu/religion_long.csv")
     h.add_argument("--out-panel", default="data/konghucu/religion_panel.csv")
+    h.add_argument("--population", default="data/konghucu/population.csv",
+                   help="unit_code,year,population from bps-population; used as denominator and sanity anchor")
     h.add_argument("--drop-cells", default=None,
                    help="CSV of unit_code,year,reason to leave out of the panel (default konghucu/drop_cells.csv)")
     h.set_defaults(func=cmd_harmonize)

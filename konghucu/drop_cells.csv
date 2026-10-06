@@ -1,7 +1,26 @@
 # Rows left out of the religion panel because the source is wrong there. A rule matches long
 # rows that agree on every field it sets: unit_code+year drops one unit-year from all sources,
 # ref alone drops a whole table, ref+year one year of a dynamic table.
-# Checked against the raw BPS cells with `bps-inspect --raw-rows`; see docs/konghucu_data_sources.md.
+# Checked against the raw BPS cells with `bps-inspect --raw-rows` or against the unit's
+# population; see docs/konghucu_data_sources.md.
 unit_code,year,ref,reason
 1271,2021,,"bps:1200:2793 gives Sibolga islam 155207 (Tapanuli Tengah's 155188 in the same table) and buddha 15078; total 185939 for a city of 90k"
 1271,2025,,"bpsvar:1200:804 gives Sibolga katolik 99747, more than the city's population"
+1272,2021,bps:1200:2793,"Tanjungbalai islam 55696, total 101k for a city of 180k"
+1607,2022,bpsvar:1600:241,"Banyuasin 1.11M in a Kemenag 'penganut' series; 840k by every other source"
+1602,2016,bpsvar:1600:637,"OKU Timur islam 48034 for a kabupaten of 700k"
+,2014,bpsvar:1600:637,"2014 column has no Islam and implausible minority counts (OKU buddha 12513)"
+,,bpsvar:1301:757,"'Jumlah Organisasi Umat' counts organisations, not people"
+1813,2019,bpsvar:1813:221,"Pesisir Barat 76k, half of every other year"
+1971,2025,bpsvar:1971:157,"Pangkalpinang islam 208, total 6k for a city of 215k"
+3312,2022,bpsvar:3300:2195,"Wonogiri 1.53M; 1.05M by every other source"
+3319,2022,bpsvar:3300:2195,"Kudus islam 80534, total 97k for a kabupaten of 865k"
+3324,2015,bps:3300:1272,"Kendal 554k; 950k-1.0M by every other source"
+,,bps:3517:3065,"Jombang domain: a single-kecamatan table (total 70k) published without the kecamatan name"
+,,bps:3517:1562,"Jombang domain: a single-kecamatan table (total 21k) published without the kecamatan name"
+,,bps:3517:5855,"Jombang domain: Mojowarno kecamatan table (title says so), rolled up as the kabupaten"
+,,bps:3577:141,"Madiun 2013: islam 1074, buddha 3957, total 6.7k for a city of 210k; values are not counts"
+6271,2014,bpsvar:6271:418,"Palangka Raya 377k; 260-275k by every other source"
+7503,2019,bpsvar:7500:79,"Gorontalo kabupaten 1.14M; 140k by every other source"
+7571,2010,bpsvar:7500:79,"Kota Gorontalo 104k; 190-200k by every other source"
+8208,2022,bpsvar:8200:341,"Pulau Taliabu total 5.6k for a kabupaten of 60k"

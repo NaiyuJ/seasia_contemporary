@@ -98,8 +98,11 @@ python -m konghucu.cli bps-fetch                         # download + parse the 
 python -m konghucu.cli arcgis-discover                   # which GIS Dukcapil layers carry religion fields
 python -m konghucu.cli arcgis-fetch --layer-url <url> --ref dkb2023s2 --year 2023 --semester 2
 python -m konghucu.cli pdf-extract data/raw/dukcapil/*.pdf --province-code 61
+python -m konghucu.cli bps-population                    # official population by kabupaten (denominator + sanity anchor)
 python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
        --inputs data/konghucu/bps_long.csv data/konghucu/arcgis_long.csv data/konghucu/pdf_long.csv
+# harmonize also writes konghucu_breaks.csv (source-definition switches) and total_outliers.csv
+# (cells to check against the raw table and, if wrong, list in konghucu/drop_cells.csv)
 ```
 
 Output `data/konghucu/religion_panel.csv`: one row per unit × year × semester

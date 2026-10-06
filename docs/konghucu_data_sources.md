@@ -45,6 +45,14 @@
 - 东爪哇、日惹大多数县级表没有孔教列，孔教并在 Lainnya 里。这些县只能把 Lainnya 当上界。
 - 县级表的总计行标签不统一（Jumlah、县名、年份、或没有），识别顺序是：Jumlah 标签，等于其他行之和，县名且明显最大，最后加总 kecamatan（source 记为 bps_kabsum）。
 
+## 官方人口作为锚
+
+`bps-population` 在每个省域里找标题是"Jumlah Penduduk Menurut Kabupaten/Kota"一类的动态变量（排除按性别、年龄、贫困、kecamatan 分的），抓全部年份，同一县年若有几个序列取中位数，输出 `data/konghucu/population.csv`（unit_code, year, population, n_refs, spread）。`harmonize` 默认读取它，面板里加 `population`、`total_to_pop`、`konghucu_share_pop`。
+
+用途有两个。一是孔教占比的分母用官方人口而不是宗教表各列之和，宗教表少一列或多抄一行不会传到分母里。二是离群值判断用官方人口做锚而不是该县各年的中位数：Buton（7401）2014 年拆出两个新县后人口减半，按中位数会被当成错误，按当年人口则正常；反过来苏拉威西北那张 Kemenag 序列各年在真实人口的 0.2 到 2 倍之间乱跳，按中位数只能抓到一半。
+
+面板构建时还会按格子自身的值丢掉明显不是人数的格子（`quality` 列）：各宗教加起来约等于 100 的是百分比表；四个以上宗教数值完全相同的是占位符；只有合计没有分宗教的没法用；缺 Islam、Kristen、Katolik 任一列的，合计设为缺失（`partial`），宗教人数本身保留。来源报告的合计若与各宗教之和相差 10% 以上，用各宗教之和（`total_reported` 保留原值）。
+
 ## 两套口径：Kemenag 与 Dukcapil
 
 同一个县的孔教人数在不同年份的表里可以差几十倍，不是解析错误。北苏门答腊的例子：Medan 在 2020 和 2022 的 "Jumlah Umat Agama" 表里是 11,194，在 2021 的 "Penduduk Menurut Agama yang Dianut" 表和 2025 动态表里是 285 和 406。前者是宗教部（Kemenag）按宗教组织申报统计的信众，后者是人口登记局（Dukcapil）按身份证宗教栏统计的登记人口。研究设计里"改身份证宗教为孔教"这个有成本的行为对应的是 Dukcapil 口径。
