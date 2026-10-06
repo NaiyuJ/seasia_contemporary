@@ -369,7 +369,7 @@ def list_years(session, domain: str, var_id: str | int, key: str, lang: str = "i
         return []
     data = js.get("data") or []
     rows = data[1] if len(data) > 1 and isinstance(data[1], list) else []
-    return [{"th_id": r.get("th_id"), "th": r.get("th")} for r in rows]
+    return [{"th_id": r.get("th_id"), "th": r.get("th")} for r in rows if isinstance(r, dict)]
 
 
 def view_data(session, domain: str, var_id: str | int, key: str, lang: str = "ind",
@@ -409,11 +409,13 @@ def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bps") -
     every combination and look it up instead of splitting the key."""
     if js.get("data-availability") != "available":
         return pd.DataFrame(columns=LONG_COLUMNS)
-    vervar = js.get("vervar") or []
-    var = (js.get("var") or [{}])[0]
-    turvar = js.get("turvar") or [{"val": 0, "label": ""}]
-    tahun = js.get("tahun") or []
-    turtahun = js.get("turtahun") or [{"val": 0, "label": ""}]
+    def _dicts(xs):
+        return [x for x in (xs or []) if isinstance(x, dict)]
+    vervar = _dicts(js.get("vervar"))
+    var = (_dicts(js.get("var")) or [{}])[0]
+    turvar = _dicts(js.get("turvar")) or [{"val": 0, "label": ""}]
+    tahun = _dicts(js.get("tahun"))
+    turtahun = _dicts(js.get("turtahun")) or [{"val": 0, "label": ""}]
     content = js.get("datacontent") or {}
     rows = []
     for vv in vervar:
