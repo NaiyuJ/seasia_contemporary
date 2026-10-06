@@ -508,7 +508,7 @@ def test_block_levels_and_name_matching(tmp_path):
     assert lv["Magelang"] == "kabupaten"  # first occurrence (drop_duplicates keeps first)
     assert d[d["unit_name"] == "Magelang"]["level"].tolist().count("kota") == 2
     codes = tmp_path / "codes.csv"
-    pd.DataFrame({"unit_code": ["3308", "3371", "3307", "6501"],
+    pd.DataFrame({"unit_code": ["3308", "3371", "3307", "3302"],
                   "unit_name": ["Magelang", "Kota Magelang", "Labuhan Batu", "Bulungan"]}).to_csv(codes, index=False)
     ct = harmonize.load_code_table(str(codes))
     d["province_code"] = "33"
@@ -516,7 +516,7 @@ def test_block_levels_and_name_matching(tmp_path):
     k = out[out["religion"] == "konghucu"].set_index("count")["unit_code"]
     assert k[1] == "3308" and k[3] == "3371"          # same name, split by block level
     assert k[2] == "3307"                              # 'Labuhanbatu' == 'Labuhan Batu', code prefix stripped
-    assert k[4] == "6501"                              # '2. Bulungan *)' cleaned
+    assert k[4] == "3302"                              # "2. Bulungan *)" cleaned; unique name in province
 
 
 def test_build_panel_excludes_bad_refs():
