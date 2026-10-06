@@ -606,4 +606,41 @@ def test_drop_cells_and_total_outliers(tmp_path):
     assert list(panel2["year"]) == [2020, 2022]
     assert harmonize.total_outliers(panel2).empty
     shipped = harmonize.load_drop_cells()  # the repo's own list parses and has the expected columns
-    assert set(shipped.columns) == {"unit_code", "year", "reason"}
+    assert set(shipped.columns) == {"unit_code", "year", "ref", "reason"}
+    assert len(shipped) >= 2
+
+
+def test_drop_rules_by_ref_and_ref_year(tmp_path):
+    rows = []
+    for y in (2020, 2021):
+        for code in ("1271", "1275"):
+            for src, ref in [("bps", f"bps:1200:{y}"), ("bpsvar", "bpsvar:1200:804")]:
+                rows.append(dict(source=src, province_code="12", unit_code=code, unit_name="x", level="kota",
+                                 religion="islam", year=y, semester=None, count=100 if src == "bps" else 200, ref=ref))
+    long = pd.DataFrame(rows)
+    f = tmp_path / "drop.csv"
+    f.write_text("unit_code,year,ref,reason\n,,bpsvar:1200:804,whole table\n")
+    panel = harmonize.build_panel(long, drop_cells=harmonize.load_drop_cells(str(f)))
+    assert (panel["islam"] == 100).all() and len(panel) == 4  # falls back to the static tables
+    f.write_text("unit_code,year,ref,reason\n,2021,bpsvar:1200:804,one year\n")
+    panel = harmonize.build_panel(long, drop_cells=harmonize.load_drop_cells(str(f)))
+    assert panel.set_index(["unit_code", "year"])["islam"].to_dict() == {
+        ("1271", 2020): 200, ("1271", 2021): 100, ("1275", 2020): 200, ("1275", 2021): 100}
+    f.write_text("unit_code,year,ref,reason\n,,,empty rule must not wipe the panel\n")
+    panel = harmonize.build_panel(long, drop_cells=harmonize.load_drop_cells(str(f)))
+    assert len(panel) == 4
+
+
+def test_one_table_per_cell():
+    # two bpsvar tables cover the same unit-year; religions must not be mixed across them
+    rows = []
+    for ref, islam, kristen in [("bpsvar:1200:1", 100, 10), ("bpsvar:1200:2", 900, 90)]:
+        for rel, n in [("islam", islam), ("kristen", kristen)]:
+            rows.append(dict(source="bpsvar", province_code="12", unit_code="1271", unit_name="x", level="kota",
+                             religion=rel, year=2020, semester=None, count=n, ref=ref))
+    rows.append(dict(source="bpsvar", province_code="12", unit_code="1271", unit_name="x", level="kota",
+                     religion="konghucu", year=2020, semester=None, count=5, ref="bpsvar:1200:2"))
+    panel = harmonize.build_panel(pd.DataFrame(rows))
+    assert len(panel) == 1
+    r = panel.iloc[0]
+    assert r["ref"] == "bpsvar:1200:2" and r["islam"] == 900 and r["kristen"] == 90 and r["konghucu"] == 5

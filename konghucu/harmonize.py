@@ -74,15 +74,41 @@ DROP_CELLS_FILE = Path(__file__).with_name("drop_cells.csv")
 
 
 def load_drop_cells(path: Optional[str] = None) -> pd.DataFrame:
-    """Hand-curated unit-years to leave out of the panel: columns unit_code, year, reason.
-    Used for source data-entry errors that no parser can fix (e.g. a province table
-    giving Sibolga another kabupaten's Muslim count). Kept in the repo, not in data/."""
+    """Hand-curated rows to leave out of the panel. Columns: unit_code, year, ref, reason;
+    unit_code, year and ref are each optional and a rule matches long rows that agree on
+    every field it sets (so `ref=bps:1200:2793` alone drops that whole table, `ref` plus
+    `year` one year of a dynamic table, `unit_code` plus `year` one unit-year from every
+    source). Used for source data-entry errors that no parser can fix. Kept in the repo."""
     f = Path(path) if path else DROP_CELLS_FILE
+    cols = ["unit_code", "year", "ref", "reason"]
     if not f.exists():
-        return pd.DataFrame(columns=["unit_code", "year", "reason"])
-    d = pd.read_csv(f, dtype={"unit_code": str}, comment="#")
-    d["year"] = d["year"].astype(int)
+        return pd.DataFrame(columns=cols)
+    d = pd.read_csv(f, dtype=str, comment="#")
+    for c in cols:
+        if c not in d.columns:
+            d[c] = None
+    d = d[cols]
+    d["year"] = pd.to_numeric(d["year"], errors="coerce").astype("Int64")
+    d["unit_code"] = d["unit_code"].where(d["unit_code"].notna() & (d["unit_code"].str.strip() != ""), None)
+    d["ref"] = d["ref"].where(d["ref"].notna() & (d["ref"].str.strip() != ""), None)
     return d
+
+
+def apply_drop_rules(df: pd.DataFrame, rules: pd.DataFrame) -> pd.Series:
+    """Boolean mask of long rows matched by any rule (see load_drop_cells)."""
+    hit = pd.Series(False, index=df.index)
+    for r in rules.itertuples(index=False):
+        m = pd.Series(True, index=df.index)
+        if r.unit_code is not None and not pd.isna(r.unit_code):
+            m &= df["unit_code"].astype(str) == str(r.unit_code)
+        if not pd.isna(r.year):
+            m &= df["year"] == int(r.year)
+        if r.ref is not None and not pd.isna(r.ref):
+            m &= df["ref"].astype(str) == str(r.ref)
+        if m.all():  # an empty rule would wipe the panel
+            continue
+        hit |= m
+    return hit
 
 
 def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs: Optional[set] = None,
@@ -106,14 +132,21 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     df["semester"] = df["semester"].fillna(0).astype(int)
     df["year"] = df["year"].astype(int)
     if drop_cells is not None and len(drop_cells):
-        keys = set(zip(drop_cells["unit_code"].astype(str), drop_cells["year"].astype(int)))
-        dropped = pd.Series([(c, y) in keys for c, y in zip(df["unit_code"], df["year"])], index=df.index)
+        dropped = apply_drop_rules(df, drop_cells)
         if dropped.any():
-            print(f"build_panel: dropping {len(set(zip(df.loc[dropped, 'unit_code'], df.loc[dropped, 'year'])))} "
-                  f"unit-years listed in drop_cells")
+            print(f"build_panel: drop rules remove {int(dropped.sum())} rows "
+                  f"({len(set(zip(df.loc[dropped, 'unit_code'], df.loc[dropped, 'year'])))} unit-years touched)")
         df = df[~dropped]
+    # one table per cell: every religion of a unit-year comes from the same ref, chosen by
+    # source preference, then by how many religions the table reports, then by ref name
     df["rank"] = df["source"].map({s: i for i, s in enumerate(prefer)}).fillna(len(prefer))
-    df = df.sort_values("rank").drop_duplicates(["unit_code", "year", "semester", "religion"], keep="first")
+    cell = ["unit_code", "year", "semester"]
+    nrel = df.groupby(cell + ["ref"])["religion"].nunique().rename("n_rel").reset_index()
+    best = df[cell + ["ref", "rank"]].drop_duplicates().merge(nrel, on=cell + ["ref"])
+    best = best.sort_values(cell + ["rank", "n_rel", "ref"], ascending=[True, True, True, True, False, True])
+    best = best.drop_duplicates(cell, keep="first")[cell + ["ref"]]
+    df = df.merge(best, on=cell + ["ref"], how="inner")
+    df = df.drop_duplicates(cell + ["religion"], keep="first")
     wide = df.pivot_table(index=["unit_code", "year", "semester"], columns="religion", values="count",
                           aggfunc="first").reset_index()
     wide.columns.name = None
@@ -121,6 +154,8 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     wide = wide.merge(src.rename("sources").reset_index(), on=["unit_code", "year", "semester"], how="left")
     kref = df[df["religion"] == "konghucu"].groupby(["unit_code", "year", "semester"])["ref"].first().rename("konghucu_ref")
     wide = wide.merge(kref.reset_index(), on=["unit_code", "year", "semester"], how="left")
+    ref = df.groupby(["unit_code", "year", "semester"])["ref"].first().rename("ref")
+    wide = wide.merge(ref.reset_index(), on=["unit_code", "year", "semester"], how="left")
     rel_cols = [c for c in wide.columns if c in {"islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepercayaan", "lainnya"}]
     summed = wide[rel_cols].sum(axis=1, min_count=1)
     if "total" not in wide.columns:
@@ -167,5 +202,9 @@ def total_outliers(panel: pd.DataFrame, tol: float = 0.35, min_obs: int = 3) -> 
         for r in g.itertuples(index=False):
             if med > 0 and abs(r.total / med - 1) > tol:
                 rows.append({"unit_code": code, "year": r.year, "total": r.total, "median_total": med,
-                             "ratio": round(r.total / med, 2), "sources": r.sources})
-    return pd.DataFrame(rows)
+                             "ratio": round(r.total / med, 2), "ref": getattr(r, "ref", None)})
+    out = pd.DataFrame(rows)
+    if len(out):
+        rel = [c for c in ["islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "lainnya"] if c in panel.columns]
+        out = out.merge(panel[["unit_code", "year"] + rel], on=["unit_code", "year"], how="left")
+    return out

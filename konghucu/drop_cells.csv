@@ -1,5 +1,7 @@
-# unit-years left out of the religion panel because the source table is wrong for that cell.
+# Rows left out of the religion panel because the source is wrong there. A rule matches long
+# rows that agree on every field it sets: unit_code+year drops one unit-year from all sources,
+# ref alone drops a whole table, ref+year one year of a dynamic table.
 # Checked against the raw BPS cells with `bps-inspect --raw-rows`; see docs/konghucu_data_sources.md.
-unit_code,year,reason
-1271,2021,"bps:1200:2793 gives Sibolga islam 155207 (Tapanuli Tengah's 155188 in the same table) and buddha 15078; total 185939 for a city of 90k"
-1271,2025,"bpsvar:1200:804 gives Sibolga katolik 99747, more than the city's population"
+unit_code,year,ref,reason
+1271,2021,,"bps:1200:2793 gives Sibolga islam 155207 (Tapanuli Tengah's 155188 in the same table) and buddha 15078; total 185939 for a city of 90k"
+1271,2025,,"bpsvar:1200:804 gives Sibolga katolik 99747, more than the city's population"

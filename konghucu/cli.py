@@ -260,7 +260,8 @@ def cmd_harmonize(a):
     if len(outl):
         print(f"unit-years whose total is >35% off the unit's median ({len(outl)}; a religion count copied from "
               f"the wrong row in the source; add to konghucu/drop_cells.csv after checking) -> {out_outl}")
-        print(outl.to_string(index=False))
+        pd.set_option("display.width", 250)
+        print(outl.to_string(index=False, float_format=lambda v: f"{v:,.0f}" if abs(v) >= 100 else f"{v:.2f}"))
     else:
         print("no unit-year totals >35% off the unit's median")
 
