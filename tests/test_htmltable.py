@@ -22,3 +22,10 @@ def test_empty_or_garbage_html_is_no_tables():
     assert read_html_tables("") == []
     assert read_html_tables("   ") == []
     assert read_html_tables("<p>no table here</p>") == []
+
+
+def test_nested_wrapper_table_counted_once():
+    html = "<table><tr><td><table><tr><th>Kec</th><th>Islam</th><th>Konghucu</th></tr><tr><td>A</td><td>1</td><td>2</td></tr></table></td></tr></table>"
+    from konghucu.htmltable import grid_tables
+    grids = grid_tables(html)
+    assert len(grids) == 1 and len(grids[0]) == 2

@@ -396,3 +396,23 @@ def test_years_row_beside_rowspan_label_is_not_data():
     assert set(df["unit_name"]) == {"Cilacap"}
     c = df.set_index(["religion", "year"])["count"]
     assert c[("islam", 2019)] == 1793687 and c[("islam", 2020)] == 1800000 and c[("buddha", 2020)] == 1463
+
+
+def test_rollup_kecamatan_sharing_the_kabupaten_name():
+    # Kota Pontianak: every kecamatan is 'Pontianak X'; total row labelled 'Kota Pontianak'
+    html = """<table><tr><th>Kecamatan</th><th>Islam</th><th>Buddha</th></tr>
+    <tr><td>Pontianak Selatan</td><td>100</td><td>10</td></tr><tr><td>Pontianak Timur</td><td>200</td><td>20</td></tr>
+    <tr><td>Pontianak Barat</td><td>300</td><td>30</td></tr><tr><td>Kota Pontianak</td><td>600</td><td>60</td></tr></table>"""
+    d = bps_api.parse_religion_html(html, "61", 2021, "x")
+    r = bps_api.rollup_kabupaten_domain(d, "6171", "Pontianak")
+    kab = r[r["level"] == "kabupaten"]
+    assert kab[kab["religion"] == "buddha"]["count"].item() == 60 and len(kab) == 2
+    assert len(r[r["level"] == "kecamatan"]) == 6
+    # Trenggalek: a kecamatan named Trenggalek AND a 'Jumlah' row; Jumlah wins, kecamatan stays
+    html2 = """<table><tr><th>Kecamatan</th><th>Islam</th><th>Buddha</th></tr>
+    <tr><td>Trenggalek</td><td>100</td><td>10</td></tr><tr><td>Panggul</td><td>200</td><td>20</td></tr>
+    <tr><td>Jumlah</td><td>300</td><td>30</td></tr></table>"""
+    d2 = bps_api.parse_religion_html(html2, "35", 2019, "y")
+    r2 = bps_api.rollup_kabupaten_domain(d2, "3503", "Trenggalek")
+    assert r2[(r2["level"] == "kabupaten") & (r2["religion"] == "islam")]["count"].item() == 300
+    assert set(r2[r2["level"] == "kecamatan"]["unit_name"]) == {"Trenggalek", "Panggul"}

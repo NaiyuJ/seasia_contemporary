@@ -32,6 +32,8 @@ def grid_tables(html: str) -> List[List[List[str]]]:
         return []
     out = []
     for table in doc.iter("table"):
+        if any(True for _ in table.iterdescendants("table")):
+            continue  # wrapper table: its rows would repeat the inner table's rows
         rows = [tr for tr in table.iter("tr")]
         if rows:
             out.append(_grid(rows))
@@ -76,6 +78,8 @@ def read_html_tables(html: str) -> List[pd.DataFrame]:
         return []
     out = []
     for table in doc.iter("table"):
+        if any(True for _ in table.iterdescendants("table")):
+            continue  # wrapper table: its rows would repeat the inner table's rows
         rows = [tr for tr in table.iter("tr")]
         if not rows:
             continue

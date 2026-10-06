@@ -519,14 +519,17 @@ def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional
     total row when it has one, otherwise the sum of the kecamatan rows."""
     if df.empty or not is_kabupaten_domain(domain):
         return df
-    d = df.copy()
+    d = df.drop_duplicates(["unit_name", "year", "religion", "count"]).copy()
+    # total row, in order of trust: labelled 'Jumlah' > equals the sum of the others >
+    # carries the kabupaten's own name (a kecamatan may share that name, so last)
     is_total = d["unit_name"] == "__PROVINCE__"
-    if domain_name:
+    if not is_total.any():
+        is_total = _rows_equal_to_sum_of_others(d)
+    if not is_total.any() and domain_name:
         dn = norm_unit_name(domain_name)
         nm = d["unit_name"].map(norm_unit_name)
-        is_total |= (nm == dn) | nm.str.startswith(dn + " ") | nm.str.match(r"^(kabupaten|kota|kab)\b.*" + re.escape(dn))
-    if not is_total.any():
-        is_total |= _rows_equal_to_sum_of_others(d)
+        is_total = (nm == dn) | nm.str.match(r"^(kabupaten|kota|kab)\s+" + re.escape(dn) + r"$") \
+            | nm.str.match(r"^" + re.escape(dn) + r"\s+(19|20)\d\d$")
     kec = d[~is_total].copy()
     kec["level"] = "kecamatan"
     kec["unit_code"] = None
