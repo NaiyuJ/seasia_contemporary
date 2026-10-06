@@ -12,7 +12,7 @@ from typing import Iterable, List, Optional, Sequence
 
 import pandas as pd
 
-from .htmltable import read_html_tables
+from .htmltable import grid_tables, read_html_tables, unescape_if_needed
 from .religion import (LONG_COLUMNS, PROVINCES, canonical_religion, norm_label, parse_count,
                        unit_level, norm_unit_name, year_from_text)
 
@@ -171,37 +171,70 @@ def _flatten_columns(cols) -> List[str]:
     return out
 
 
+def _is_number_like(cell: str) -> bool:
+    c = (cell or "").strip()
+    return bool(c) and parse_count(c) is not None and not re.search(r"[A-Za-z]{3,}", c)
+
+
 def parse_religion_html(html: str, province_code: str, year: Optional[int], ref: str,
                         source: str = "bps") -> pd.DataFrame:
-    """Parse a BPS 'penduduk menurut kabupaten/kota dan agama' HTML table into long form.
+    """BPS 'penduduk menurut kabupaten/kota dan agama' tables (Excel-exported HTML,
+    entity-escaped, title rows above, no <th>) to long form.
 
-    Handles multi-level headers (e.g. a 'Agama' super-header over religion names, or
-    year super-headers over religions). The first text column is the unit name."""
+    Header = the row with the most religion-name cells (at least 2). Rows below it
+    are data; the unit name is the first non-numeric, non-empty cell. Rows above the
+    header are ignored. A religion column header may also carry a year."""
     frames = []
-    for t in read_html_tables(html):
-        if t.shape[1] < 2:
+    for grid in grid_tables(html):
+        if len(grid) < 2:
             continue
-        name_col = t.columns[0]
-        rel_cols = [(c, canonical_religion(c), year_from_text(c)) for c in t.columns[1:]]
-        rel_cols = [(c, r, y) for c, r, y in rel_cols if r is not None]
+        # header = row with the most DISTINCT named religions (not 'total': a title
+        # cell like 'Jumlah Penduduk ...' spans every column and would win otherwise)
+        scores = [len({canonical_religion(c) for c in row} - {None, "total"}) for row in grid]
+        h = max(range(len(grid)), key=lambda i: scores[i])
+        if scores[h] < 2:
+            continue
+        header = grid[h]
+        # a second header row (e.g. years under religion names, or religion names under
+        # a 'Agama' super-header) is merged when it adds information
+        header2 = grid[h + 1] if h + 1 < len(grid) else None
+        rel_cols = []
+        for j, cell in enumerate(header):
+            rel = canonical_religion(cell)
+            yr = year_from_text(cell)
+            if rel is None and header2 is not None:
+                rel = canonical_religion(header2[j]) if j < len(header2) else None
+            if rel is None:
+                continue
+            if yr is None and header2 is not None and j < len(header2):
+                yr = year_from_text(header2[j]) if canonical_religion(header2[j]) is None else None
+            rel_cols.append((j, rel, yr))
         if not rel_cols:
             continue
-        for rec in t.itertuples(index=False):
-            name = rec[0]
-            if pd.isna(name) or not str(name).strip():
+        data_start = h + 1
+        if header2 is not None:
+            nonempty = [c for c in header2 if c and c.strip()]
+            only_years = bool(nonempty) and all(re.fullmatch(r"\d{4}(/\d{2,4})?", c.strip()) for c in nonempty)
+            if only_years or not any(_is_number_like(c) for c in header2):
+                data_start = h + 2  # header2 was a header row (years or sub-labels), not data
+        for row in grid[data_start:]:
+            name = next((c.strip() for c in row if c and c.strip() and not _is_number_like(c)), None)
+            if not name:
                 continue
             nm = norm_label(name)
-            if not nm or nm in {"kabupaten/kota", "kabupaten", "kota", "wilayah", "daerah"}:
+            if nm in {"kabupaten/kota", "kabupaten", "kota", "wilayah", "daerah", "kecamatan", "no", "no."} \
+                    or canonical_religion(nm) is not None and nm not in {"jumlah", "total"}:
                 continue
-            is_prov_total = nm.replace(" ", "") in {norm_label(PROVINCES.get(province_code, "")).replace(" ", ""), "jumlah", "total"} \
-                or nm.startswith("provinsi") or nm.startswith("jumlah") or nm.startswith("total")
-            for i, (col, rel, col_year) in enumerate(rel_cols):
-                val = parse_count(rec[t.columns.get_loc(col)])
-                frames.append({"source": source, "province_code": province_code,
-                               "unit_code": None,
-                               "unit_name": ("__PROVINCE__" if is_prov_total else str(name).strip()),
-                               "year": col_year or year, "semester": None, "religion": rel,
-                               "count": val, "ref": ref})
+            vals = [(j, rel, yr, parse_count(row[j]) if j < len(row) else None) for j, rel, yr in rel_cols]
+            if all(v is None for *_, v in vals):
+                continue
+            prov_nm = norm_label(PROVINCES.get(province_code, "")).replace(" ", "")
+            is_prov_total = nm.replace(" ", "") == prov_nm or nm.startswith("provinsi") \
+                or nm.startswith("jumlah") or nm.startswith("total")
+            for j, rel, yr, v in vals:
+                frames.append({"source": source, "province_code": province_code, "unit_code": None,
+                               "unit_name": "__PROVINCE__" if is_prov_total else name,
+                               "year": yr or year, "semester": None, "religion": rel, "count": v, "ref": ref})
     df = pd.DataFrame(frames, columns=LONG_COLUMNS)
     df["level"] = df["unit_name"].map(unit_level)
     df["unit_name_norm"] = df["unit_name"].map(norm_unit_name)
@@ -222,12 +255,12 @@ def fetch_tables(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.
         meta = Path(raw_dir) / f"bps_{rec.domain}_{rec.table_id}.json" if raw_dir else None
         try:
             if raw is not None and raw.exists() and raw.stat().st_size > 0:
-                html = raw.read_text(encoding="utf-8")
+                html = unescape_if_needed(raw.read_text(encoding="utf-8"))
                 title = json.loads(meta.read_text()).get("title") if meta and meta.exists() else rec.title
             else:
                 full = view_static_table_raw(session, rec.domain, rec.table_id, key)
                 data = full.get("data") if isinstance(full.get("data"), dict) else {}
-                html, title = data.get("table") or "", data.get("title") or rec.title
+                html, title = unescape_if_needed(data.get("table") or ""), data.get("title") or rec.title
                 if raw is not None:
                     raw.parent.mkdir(parents=True, exist_ok=True)
                     raw.write_text(html, encoding="utf-8")
@@ -317,10 +350,26 @@ def search_vars_all_provinces(session, key: str, keyword: str = "agama", sleep_s
     return pd.DataFrame(rows, columns=cols)
 
 
-def view_data(session, domain: str, var_id: str | int, key: str, lang: str = "ind", th: Optional[str] = None) -> dict:
-    url = f"{BASE}/list/model/data/lang/{lang}/domain/{domain}/var/{var_id}/key/{key}"
-    if th:
-        url = f"{BASE}/list/model/data/lang/{lang}/domain/{domain}/var/{var_id}/th/{th}/key/{key}"
+DEFAULT_TH = "100:130"  # BPS year ids are year - 1900; 100:130 = 2000..2030
+
+
+def list_years(session, domain: str, var_id: str | int, key: str, lang: str = "ind") -> List[dict]:
+    """Years available for a variable: [{th_id, th}]. Empty if the endpoint fails."""
+    url = f"{BASE}/list/model/th/lang/{lang}/domain/{domain}/var/{var_id}/key/{key}"
+    try:
+        js = _get_json(session, url)
+    except RuntimeError:
+        return []
+    data = js.get("data") or []
+    rows = data[1] if len(data) > 1 and isinstance(data[1], list) else []
+    return [{"th_id": r.get("th_id"), "th": r.get("th")} for r in rows]
+
+
+def view_data(session, domain: str, var_id: str | int, key: str, lang: str = "ind",
+              th: Optional[str] = None) -> dict:
+    """The data endpoint requires `th`: year ids, ':' for a range, ';' for a list."""
+    th = th or DEFAULT_TH
+    url = f"{BASE}/list/model/data/lang/{lang}/domain/{domain}/var/{var_id}/th/{th}/key/{key}"
     return _get_json(session, url)
 
 
