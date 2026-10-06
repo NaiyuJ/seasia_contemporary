@@ -71,3 +71,18 @@ def test_sub_kecamatan_flag():
     assert c("Jumlah Penduduk Menurut Agama Kec Paiton")["is_sub_kecamatan"]
     assert c("Jumlah Penduduk Menurut Agama per Kelurahan, 2013")["is_sub_kecamatan"]
     assert not c("Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut di Kabupaten Magetan, 2023")["is_sub_kecamatan"]
+
+
+def test_letter_spaced_names_are_names():
+    html = """<table><tr><th>Kabupaten/Kota</th><th>Islam</th><th>Khonghucu</th></tr>
+    <tr><td>Kabupaten</td><td></td><td></td></tr>
+    <tr><td>01 N i a s</td><td>1 672</td><td>0</td></tr>
+    <tr><td>Kota</td><td></td><td></td></tr>
+    <tr><td>75 M e d a n</td><td>1 743 292</td><td>285</td></tr>
+    <tr><td>Sumatera Utara</td><td>10 064 383</td><td>738</td></tr></table>"""
+    df = bps_api.parse_religion_html(html, "12", 2021, "x")
+    k = df[df["religion"] == "konghucu"].set_index("unit_name")
+    assert k.loc["75 M e d a n", "count"] == 285 and k.loc["75 M e d a n", "level"] == "kota"
+    assert k.loc["01 N i a s", "level"] == "kabupaten" and k.loc["__PROVINCE__", "count"] == 738
+    from konghucu.religion import squash_unit_name
+    assert squash_unit_name("75 M e d a n") == "medan"

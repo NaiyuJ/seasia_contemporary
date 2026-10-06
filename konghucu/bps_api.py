@@ -183,8 +183,10 @@ def _block_level(label: str):
 
 
 def _is_number_like(cell: str) -> bool:
+    """A count/number cell. Any letter disqualifies: BPS letter-spaces some names
+    ('M e d a n', 'N i a s') and those must stay names."""
     c = (cell or "").strip()
-    return bool(c) and parse_count(c) is not None and not re.search(r"[A-Za-z]{3,}", c)
+    return bool(c) and parse_count(c) is not None and not re.search(r"[A-Za-z]", c)
 
 
 def parse_religion_html(html: str, province_code: str, year: Optional[int], ref: str,

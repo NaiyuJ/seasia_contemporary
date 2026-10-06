@@ -61,6 +61,7 @@ def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
 
 BAD_REFS = {
     "bps:3300:1881",  # Jawa Tengah 2019-2021: identical values across years, shifted columns in the source
+    "bps:6400:321",   # Kalimantan Timur 2015 (Kemenag): Samarinda Konghucu 32,001, an order of magnitude off
 }
 
 
