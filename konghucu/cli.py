@@ -44,9 +44,9 @@ class _Checkpoint:
 
 
 STATIC_COLS = ["domain", "province_code", "domain_name", "table_id", "title", "subj", "updt_date", "excel",
-               "about_religion", "by_unit", "is_percent"]
+               "about_religion", "by_unit", "is_percent", "is_sub_kecamatan"]
 VAR_COLS = ["domain", "province_code", "domain_name", "var_id", "title", "subj", "vertical", "unit", "notes",
-            "about_religion", "by_unit", "is_percent"]
+            "about_religion", "by_unit", "is_percent", "is_sub_kecamatan"]
 
 
 def cmd_bps_search(a):
@@ -60,7 +60,7 @@ def cmd_bps_search(a):
     bps_api.search_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw,
                                  skip_domains=ck.done, on_domain=ck)
     df = ck.load()
-    for c in ("about_religion", "by_unit", "is_percent"):
+    for c in ("about_religion", "by_unit", "is_percent", "is_sub_kecamatan"):
         df[c] = df[c].astype(str).str.lower() == "true"
     sel = df[df["about_religion"]]
     print(f"{len(df)} tables, {len(sel)} about population by religion ({int(sel['is_percent'].sum())} are percentages) -> {a.out}")
@@ -72,7 +72,7 @@ def cmd_bps_search(a):
     bps_api.search_vars_all_provinces(s, key, level=a.level, provinces=a.provinces, keywords=kw,
                                       skip_domains=ckv.done, on_domain=ckv)
     dv = ckv.load()
-    for c in ("about_religion", "by_unit", "is_percent"):
+    for c in ("about_religion", "by_unit", "is_percent", "is_sub_kecamatan"):
         dv[c] = dv[c].astype(str).str.lower() == "true"
     selv = dv[dv["about_religion"]]
     print(f"{len(dv)} variables, {len(selv)} about population by religion ({int(selv['is_percent'].sum())} are percentages) -> {a.out_vars}")
@@ -94,9 +94,11 @@ def cmd_bps_fetch(a):
         if not frames:
             return None
         df = pd.concat(frames, ignore_index=True)
-        for c in ("about_religion", "by_unit", "is_percent"):
+        if "is_sub_kecamatan" not in df.columns:  # catalogues made before this flag existed
+            df["is_sub_kecamatan"] = df["title"].map(lambda t: bps_api.classify_title(t)["is_sub_kecamatan"])
+        for c in ("about_religion", "by_unit", "is_percent", "is_sub_kecamatan"):
             df[c] = df[c].astype(str).str.lower() == "true"
-        return df if a.all else df[df["about_religion"] & ~df["is_percent"]]
+        return df if a.all else df[df["about_religion"] & ~df["is_percent"] & ~df["is_sub_kecamatan"]]
 
     parts = []
     cat = _load(a.catalogue)
@@ -115,6 +117,14 @@ def cmd_bps_fetch(a):
     if df.empty or "level" not in df.columns:
         print("nothing parsed; run `python -m konghucu.cli bps-probe` and paste the output")
         return
+    print("rows by level and source:")
+    print(df.groupby(["level", "source"]).size().to_string())
+    print("rows by religion label:")
+    print(df["religion"].value_counts().to_string())
+    kab = df[df["level"] != "kecamatan"]
+    cov = kab.groupby("ref")["religion"].agg(lambda s: "konghucu" in set(s))
+    print(f"tables with a konghucu column: {int(cov.sum())} of {len(cov)}; without (first 15):")
+    print("  " + "\n  ".join(cov[~cov].index[:15]))
     k = df[(df["religion"] == "konghucu") & (df["unit_name"] != "__PROVINCE__") & (df["level"] != "kecamatan")]
     if len(k):
         print("konghucu rows at kabupaten level (or unit rows of province tables), by province and year:")
@@ -141,6 +151,21 @@ def cmd_bps_probe(a):
     txt = json.dumps(js, ensure_ascii=False)
     print(txt[:a.chars])
     print(f"... ({len(txt)} chars total)")
+
+
+def cmd_bps_inspect(a):
+    """Show how one cached static table was read: header cells and their religion mapping."""
+    import json
+    raw = Path(a.raw_dir) / f"bps_{a.domain}_{a.table_id}.html"
+    if not raw.exists():
+        raise SystemExit(f"{raw} not found; run bps-fetch first")
+    html = raw.read_text(encoding="utf-8")
+    for rep in bps_api.header_report(html):
+        print(json.dumps(rep, ensure_ascii=False, indent=1))
+    d = bps_api.parse_religion_html(html, a.domain[:2], None, f"bps:{a.domain}:{a.table_id}")
+    d = bps_api.rollup_kabupaten_domain(d, a.domain, a.domain)
+    pd.set_option("display.width", 200)
+    print(d[["unit_name", "level", "religion", "year", "count"]].head(40).to_string(index=False))
 
 
 def cmd_arcgis_discover(a):
@@ -220,6 +245,11 @@ def build_parser():
     pr.add_argument("--var-domain", default="1200"); pr.add_argument("--var-id", default="804")
     pr.add_argument("--chars", type=int, default=1500)
     pr.set_defaults(func=cmd_bps_probe)
+
+    ins = sp.add_parser("bps-inspect", help="show header mapping and parsed rows of one cached static table")
+    ins.add_argument("--domain", required=True); ins.add_argument("--table-id", required=True)
+    ins.add_argument("--raw-dir", default="data/raw/bps")
+    ins.set_defaults(func=cmd_bps_inspect)
 
     d = sp.add_parser("arcgis-discover", help="scan GIS Dukcapil for layers with religion fields")
     d.add_argument("--base", default=arcgis.DEFAULT_BASE)

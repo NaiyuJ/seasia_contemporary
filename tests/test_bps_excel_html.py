@@ -44,3 +44,30 @@ def test_parse_year_columns_under_religions():
     df = bps_api.parse_religion_html(html, "61", None, "x")
     k = df[df["religion"] == "konghucu"].set_index("year")["count"]
     assert k[2019] == 30 and k[2020] == 40
+
+
+def test_konghucu_spellings():
+    from konghucu.religion import canonical_religion
+    for lab in ["Khong Hu Chu", "Kong Hu Chu", "Konghuchu", "Khonghuchu", "Kong Hu Cu", "Khonghucu", "KONGHUCU",
+                "Konghutju", "Kong Fu Cu"]:
+        assert canonical_religion(lab) == "konghucu", lab
+
+
+def test_transposed_religion_rows():
+    html = """<table>
+    <tr><td>Agama</td><td>Laki-laki</td><td>Perempuan</td><td>Jumlah</td></tr>
+    <tr><td>Islam</td><td>100</td><td>110</td><td>210</td></tr>
+    <tr><td>Khong Hu Chu</td><td>3</td><td>4</td><td>7</td></tr>
+    <tr><td>Jumlah</td><td>103</td><td>114</td><td>217</td></tr></table>"""
+    df = bps_api.parse_religion_html(html, "35", 2019, "x")
+    k = df[df["religion"] == "konghucu"].set_index("unit_name")["count"]
+    assert k["__PROVINCE__"] == 7          # the 'Jumlah' column becomes the total row
+    assert k["Laki-laki"] == 3 and k["Perempuan"] == 4
+
+
+def test_sub_kecamatan_flag():
+    c = bps_api.classify_title
+    assert c("Banyaknya Penduduk Menurut Agama dan Jenis Kelamin Kecamatan Rungkut Tahun 2019")["is_sub_kecamatan"]
+    assert c("Jumlah Penduduk Menurut Agama Kec Paiton")["is_sub_kecamatan"]
+    assert c("Jumlah Penduduk Menurut Agama per Kelurahan, 2013")["is_sub_kecamatan"]
+    assert not c("Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut di Kabupaten Magetan, 2023")["is_sub_kecamatan"]

@@ -93,7 +93,8 @@ def classify_title(title: object) -> dict:
     about = bool(re.search(RELIGION_POP_RE, t)) and not re.search(NOT_RELIGION_RE, t)
     return {"about_religion": about,
             "by_unit": about and bool(re.search(r"kabupaten|kota|kab/kota|kecamatan", t)),
-            "is_percent": "persentase" in t or "persen" in t}
+            "is_percent": "persentase" in t or "persen" in t,
+            "is_sub_kecamatan": bool(re.search(r"jenis kelamin kecamatan|kelurahan|desa|per kelurahan|\bkec\.? \w+$|di kecamatan \w+", t))}
 
 
 def list_domains(session, key: str, prov_code: Optional[str] = None, lang: str = "ind") -> List[dict]:
@@ -191,6 +192,12 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
         # header = row with the most DISTINCT named religions (not 'total': a title
         # cell like 'Jumlah Penduduk ...' spans every column and would win otherwise)
         scores = [len({canonical_religion(c) for c in row} - {None, "total"}) for row in grid]
+        width = max(len(r) for r in grid)
+        col_scores = [len({canonical_religion(r[j]) for r in grid if j < len(r)} - {None, "total"}) for j in range(width)]
+        if max(col_scores, default=0) > max(scores, default=0):
+            # religions run down a column (e.g. 'Agama x Jenis Kelamin' tables): transpose
+            grid = [[r[j] if j < len(r) else "" for r in grid] for j in range(width)]
+            scores = [len({canonical_religion(c) for c in row} - {None, "total"}) for row in grid]
         h = max(range(len(grid)), key=lambda i: scores[i])
         if scores[h] < 2:
             continue
@@ -444,9 +451,12 @@ def fetch_vars(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.3,
         ref = f"bpsvar:{rec.domain}:{rec.var_id}"
         raw = Path(raw_dir) / f"bps_var_{rec.domain}_{rec.var_id}.json" if raw_dir else None
         try:
+            js = None
             if raw is not None and raw.exists() and raw.stat().st_size > 0:
-                js = json.loads(raw.read_text(encoding="utf-8"))
-            else:
+                cached = json.loads(raw.read_text(encoding="utf-8"))
+                if cached.get("data-availability") == "available":
+                    js = cached
+            if js is None:
                 js = view_data_all_years(session, rec.domain, rec.var_id, key, sleep_s=sleep_s)
                 if raw is not None:
                     raw.parent.mkdir(parents=True, exist_ok=True)
@@ -498,3 +508,17 @@ def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional
     tot["unit_name_norm"] = norm_unit_name(tot["unit_name"].iloc[0]) if len(tot) else None
     cols = LONG_COLUMNS + ["level", "unit_name_norm"]
     return pd.concat([tot.reindex(columns=cols), kec.reindex(columns=cols)], ignore_index=True)
+
+
+def header_report(html: str) -> List[dict]:
+    """For debugging: every grid's chosen header row with each cell's religion mapping."""
+    out = []
+    for grid in grid_tables(html):
+        scores = [len({canonical_religion(c) for c in row} - {None, "total"}) for row in grid]
+        if not scores:
+            continue
+        h = max(range(len(grid)), key=lambda i: scores[i])
+        out.append({"header_row_index": h, "score": scores[h], "n_rows": len(grid),
+                    "cells": [(c, canonical_religion(c)) for c in grid[h] if c],
+                    "first_data_rows": [r[:9] for r in grid[h + 1:h + 4]]})
+    return out
