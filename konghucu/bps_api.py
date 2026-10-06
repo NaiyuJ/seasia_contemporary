@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Sequence
 import pandas as pd
 
 from .htmltable import grid_tables, read_html_tables, unescape_if_needed
-from .religion import (LONG_COLUMNS, PROVINCES, canonical_religion, is_unit_name, norm_label, parse_count,
+from .religion import (LONG_COLUMNS, PROVINCES, canonical_religion, is_unit_name, norm_label, parse_count, strip_tags,
                        unit_level, norm_unit_name, year_from_text)
 
 BASE = "https://webapi.bps.go.id/v1/api"
@@ -460,9 +460,13 @@ def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bpsvar"
     content = js.get("datacontent") or {}
     rows = []
     for vv in vervar:
-        region = str(vv.get("label", "")).strip()
+        region = strip_tags(str(vv.get("label", ""))).strip()
         if not is_unit_name(region):
             continue
+        # BPS often prefixes the label with the unit's own code: '3308 Kabupaten Magelang'
+        m_code = re.match(r"^(\d{4})\s+\S", region)
+        code_from_label = m_code.group(1) if m_code and not m_code.group(1).endswith("00") else None
+        region_nm = re.sub(r"^\d+\s*", "", norm_label(region))
         for tv in turvar:
             rel = canonical_religion(tv.get("label", ""))
             if rel is None and len(turvar) > 1:
@@ -474,10 +478,10 @@ def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bpsvar"
                     k = f"{vv['val']}{var.get('val', '')}{tv['val']}{th['val']}{tt['val']}"
                     if k not in content:
                         continue
-                    nm = norm_label(region)
+                    nm = region_nm
                     is_prov = nm.startswith("provinsi") or nm.replace(" ", "") == norm_label(PROVINCES.get(province_code, "")).replace(" ", "") \
-                        or nm in {"jumlah", "total"}
-                    rows.append({"source": source, "province_code": province_code, "unit_code": None,
+                        or nm in {"jumlah", "total"} or (m_code is not None and m_code.group(1).endswith("00"))
+                    rows.append({"source": source, "province_code": province_code, "unit_code": code_from_label,
                                  "unit_name": "__PROVINCE__" if is_prov else region,
                                  "year": year_from_text(th.get("label", "")), "semester": None,
                                  "religion": rel, "count": parse_count(content[k]), "ref": ref})

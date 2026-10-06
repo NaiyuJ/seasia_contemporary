@@ -525,3 +525,31 @@ def test_build_panel_excludes_bad_refs():
         dict(source="bps", province_code="33", unit_code="3301", unit_name="Cilacap", year=2020, semester=None, religion="konghucu", count=5, ref="bps:3300:2249"),
     ])
     assert harmonize.build_panel(long).iloc[0]["konghucu"] == 5
+
+
+def test_dynamic_label_code_prefix_and_html_tags():
+    js = {"data-availability": "available",
+          "vervar": [{"val": 1, "label": "3308 Kabupaten Magelang"}, {"val": 2, "label": "3371 Kota Magelang"},
+                     {"val": 3, "label": "3300 Provinsi Jawa Tengah"}, {"val": 4, "label": "<b>Maluku Utara</b>"}],
+          "var": [{"val": 55, "label": "Penduduk Menurut Agama"}], "turvar": [{"val": 6, "label": "Khonghucu"}],
+          "tahun": [{"val": 122, "label": "2022"}], "turtahun": [{"val": 0, "label": ""}],
+          "datacontent": {"15561220": 10, "25561220": 20, "35561220": 30, "45561220": 40}}
+    df = bps_api.parse_dynamic(js, "33", "x").set_index("count")
+    assert df.loc[10, "unit_code"] == "3308" and df.loc[20, "unit_code"] == "3371"
+    assert df.loc[30, "unit_name"] == "__PROVINCE__"
+    assert df.loc[40, "unit_name"] == "Maluku Utara" and df.loc[40, "unit_name_norm"] == "maluku utara"
+
+
+def test_bare_name_prefers_kabupaten_and_national_fallback(tmp_path):
+    codes = tmp_path / "codes.csv"
+    pd.DataFrame({"unit_code": ["3201", "3271", "9403", "9471", "7110"],
+                  "unit_name": ["Bogor", "Kota Bogor", "Jayapura", "Kota Jayapura", "Siau Tagulandang Biaro"]}).to_csv(codes, index=False)
+    ct = harmonize.load_code_table(str(codes))
+    long = pd.DataFrame([
+        dict(source="bpsvar", province_code="32", unit_code=None, unit_name="Bogor", level="unknown", year=2020, semester=None, religion="konghucu", count=1, ref="a"),
+        dict(source="bpsvar", province_code="94", unit_code=None, unit_name="Jayapura", level="unknown", year=2020, semester=None, religion="konghucu", count=2, ref="b"),
+        dict(source="bpsvar", province_code="71", unit_code=None, unit_name="Kepulauan Sitaro", level="unknown", year=2020, semester=None, religion="konghucu", count=3, ref="c"),
+        dict(source="bpsvar", province_code="33", unit_code="3308", unit_name="3308 Kabupaten Magelang", level="kabupaten", year=2020, semester=None, religion="konghucu", count=4, ref="d"),
+    ])
+    out = harmonize.attach_codes(long, ct).set_index("count")["unit_code"]
+    assert out[1] == "3201" and out[2] == "9403" and out[3] == "7110" and out[4] == "3308"

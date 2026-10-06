@@ -30,11 +30,14 @@ def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
     when the level is unknown and the name is unique within the province."""
     df = long.copy()
     df["unit_code"] = df["unit_code"].where(df["unit_code"].notna() & (df["unit_code"] != ""), None)
+    df["unit_code"] = df["unit_code"].map(lambda c: str(c).zfill(4) if c is not None and str(c) != "nan" else None)
     df["unit_key"] = df["unit_name"].map(squash_unit_name)
     missing = df["unit_code"].isna() & (df["unit_name"] != "__PROVINCE__")
     by_level = codes.set_index(["province_code", "level", "unit_key"])["unit_code"]
     by_level = by_level[~by_level.index.duplicated()]
     uniq = codes.drop_duplicates(["province_code", "unit_key"], keep=False).set_index(["province_code", "unit_key"])["unit_code"]
+    nat_uniq = codes.drop_duplicates(["unit_key"], keep=False).set_index("unit_key")["unit_code"]
+    nat_kab = codes[codes["level"] == "kabupaten"].drop_duplicates("unit_key", keep=False).set_index("unit_key")["unit_code"]
     # resolve each distinct (province, level, key) once, then map
     cache = {}
     for prov, lvl, k in set(map(tuple, df.loc[missing, ["province_code", "level", "unit_key"]].itertuples(index=False))):
@@ -43,6 +46,12 @@ def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
             code = by_level.loc[(prov, lvl, k)]
         elif (prov, k) in uniq.index:  # level unknown (or wrong) but the name is unique in the province
             code = uniq.loc[(prov, k)]
+        elif lvl == "unknown" and (prov, "kabupaten", k) in by_level.index:
+            code = by_level.loc[(prov, "kabupaten", k)]  # BPS: only kota carry a prefix, so a bare name is the kabupaten
+        elif k in nat_uniq.index:  # table filed under another province's domain (e.g. old Papua tables)
+            code = nat_uniq.loc[k]
+        elif lvl == "unknown" and k in nat_kab.index:
+            code = nat_kab.loc[k]
         cache[(prov, lvl, k)] = code
     df.loc[missing, "unit_code"] = [cache[(p, l, k)] for p, l, k in
                                     df.loc[missing, ["province_code", "level", "unit_key"]].itertuples(index=False)]
