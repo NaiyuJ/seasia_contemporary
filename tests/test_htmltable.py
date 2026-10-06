@@ -16,3 +16,9 @@ def test_no_thead_first_row_header_and_duplicates():
     t = read_html_tables(html)[0]
     assert list(t.columns) == ["Negara", "2019", "2019.1"]
     assert len(t) == 1
+
+
+def test_empty_or_garbage_html_is_no_tables():
+    assert read_html_tables("") == []
+    assert read_html_tables("   ") == []
+    assert read_html_tables("<p>no table here</p>") == []

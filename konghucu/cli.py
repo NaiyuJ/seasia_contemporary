@@ -112,7 +112,13 @@ def cmd_bps_fetch(a):
     df = pd.concat(parts, ignore_index=True)
     df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} rows from {df['ref'].nunique()} tables -> {a.out}")
-    print(df.groupby(["province_code", "year"]).size().to_string())
+    k = df[(df["religion"] == "konghucu") & (df["unit_name"] != "__PROVINCE__") & (df["level"] != "kecamatan")]
+    if len(k):
+        print("konghucu rows at kabupaten level (or unit rows of province tables), by province and year:")
+        print(k.groupby(["province_code", "year"]).agg(units=("unit_name", "nunique")).unstack("year")
+              .fillna(0).astype(int).to_string())
+    else:
+        print("no konghucu rows found; inspect data/raw/bps and the column headers")
 
 
 def cmd_arcgis_discover(a):

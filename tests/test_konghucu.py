@@ -319,3 +319,26 @@ def test_checkpoint_resume(tmp_path):
     assert ck2.done == {"6101", "6102"} and len(ck2.load()) == 1
     ck3 = _Checkpoint(out, resume=False, columns=STATIC_COLS)
     assert ck3.done == set() and len(ck3.load()) == 0
+
+
+def test_fetch_tables_skips_bad_tables_and_reuses_raw(tmp_path):
+    calls = []
+
+    def view(url, params):
+        calls.append(url)
+        if "/id/1/" in url:
+            return {"status": "OK", "data": {"title": "Penduduk Menurut Kabupaten/Kota dan Agama 2021", "table": BPS_HTML}}
+        if "/id/2/" in url:
+            return {"status": "OK", "data": {"title": "x", "table": ""}}          # empty
+        return {"status": "OK", "data": {"title": "y", "table": "<table><tr><th>A</th></tr></table>"}}  # no religion
+    s = FakeSession({"/view/model/statictable": view})
+    cat = pd.DataFrame([{"domain": "6100", "province_code": "61", "domain_name": "Kalbar", "table_id": t, "title": "t"}
+                        for t in ("1", "2", "3")])
+    logs = []
+    df = bps_api.fetch_tables(s, cat, "k", sleep_s=0, raw_dir=str(tmp_path), log=logs.append)
+    assert df["ref"].nunique() == 1 and (df["year"] == 2021).all()
+    assert any("EMPTY" in m for m in logs) and any("NO RELIGION" in m for m in logs)
+    n = len(calls)
+    df2 = bps_api.fetch_tables(s, cat, "k", sleep_s=0, raw_dir=str(tmp_path), log=logs.append)
+    assert len(calls) == n + 1            # tables 1 and 3 come from raw_dir; only the empty one is re-fetched
+    assert df2.equals(df)

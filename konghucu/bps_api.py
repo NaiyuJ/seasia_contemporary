@@ -205,27 +205,47 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
 
 
 def fetch_tables(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.3,
-                 raw_dir: Optional[str] = None) -> pd.DataFrame:
-    """Download and parse every row of `catalogue` (output of search_all_provinces, filtered)."""
+                 raw_dir: Optional[str] = None, log=print) -> pd.DataFrame:
+    """Download and parse every row of `catalogue`. One line per table is logged; a table
+    that is empty, unreachable or unparseable is skipped, never fatal. Raw HTML already
+    in `raw_dir` is reused instead of re-downloaded."""
+    import json
     from pathlib import Path
-    parts = []
-    for rec in catalogue.itertuples(index=False):
-        data = view_static_table(session, rec.domain, rec.table_id, key)
-        html = data.get("table") or ""
-        if raw_dir:
-            p = Path(raw_dir)
-            p.mkdir(parents=True, exist_ok=True)
-            (p / f"bps_{rec.domain}_{rec.table_id}.html").write_text(html, encoding="utf-8")
-        if not html:
-            continue
-        year = year_from_text(data.get("title") or rec.title)
+    parts, status = [], {"ok": 0, "empty": 0, "no_religion_rows": 0, "error": 0}
+    for i, rec in enumerate(catalogue.itertuples(index=False), 1):
         ref = f"bps:{rec.domain}:{rec.table_id}"
+        raw = Path(raw_dir) / f"bps_{rec.domain}_{rec.table_id}.html" if raw_dir else None
+        meta = Path(raw_dir) / f"bps_{rec.domain}_{rec.table_id}.json" if raw_dir else None
         try:
-            d = parse_religion_html(html, str(rec.province_code), year, ref)
-        except ValueError:
-            continue
-        parts.append(rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None)))
-        time.sleep(sleep_s)
+            if raw is not None and raw.exists() and raw.stat().st_size > 0:
+                html = raw.read_text(encoding="utf-8")
+                title = json.loads(meta.read_text()).get("title") if meta and meta.exists() else rec.title
+            else:
+                data = view_static_table(session, rec.domain, rec.table_id, key)
+                html, title = data.get("table") or "", data.get("title") or rec.title
+                if raw is not None:
+                    raw.parent.mkdir(parents=True, exist_ok=True)
+                    raw.write_text(html, encoding="utf-8")
+                    meta.write_text(json.dumps({"title": title}, ensure_ascii=False))
+                time.sleep(sleep_s)
+            if not html or "<table" not in html.lower():
+                status["empty"] += 1
+                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY  {str(rec.title)[:70]}")
+                continue
+            d = parse_religion_html(html, str(rec.province_code), year_from_text(title), ref)
+            d = rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None))
+            if d.empty:
+                status["no_religion_rows"] += 1
+                log(f"  [{i}/{len(catalogue)}] {ref} NO RELIGION COLUMNS  {str(rec.title)[:70]}")
+                continue
+            parts.append(d)
+            status["ok"] += 1
+            yrs = sorted(set(d["year"].dropna().astype(int)))
+            log(f"  [{i}/{len(catalogue)}] {ref} ok rows={len(d)} years={yrs[:1]}..{yrs[-1:]}  {str(rec.title)[:60]}")
+        except Exception as e:  # noqa: BLE001
+            status["error"] += 1
+            log(f"  [{i}/{len(catalogue)}] {ref} ERROR {type(e).__name__}: {str(e)[:80]}")
+    log(f"static tables: {status}")
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS)
 
 
@@ -332,19 +352,36 @@ def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bps") -
 
 
 def fetch_vars(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.3,
-               raw_dir: Optional[str] = None) -> pd.DataFrame:
+               raw_dir: Optional[str] = None, log=print) -> pd.DataFrame:
     import json
     from pathlib import Path
-    parts = []
-    for rec in catalogue.itertuples(index=False):
-        js = view_data(session, rec.domain, rec.var_id, key)
-        if raw_dir:
-            Path(raw_dir).mkdir(parents=True, exist_ok=True)
-            (Path(raw_dir) / f"bps_var_{rec.domain}_{rec.var_id}.json").write_text(json.dumps(js, ensure_ascii=False))
-        d = parse_dynamic(js, str(rec.province_code), f"bpsvar:{rec.domain}:{rec.var_id}")
-        if len(d):
-            parts.append(rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None)))
-        time.sleep(sleep_s)
+    parts, status = [], {"ok": 0, "empty": 0, "error": 0}
+    for i, rec in enumerate(catalogue.itertuples(index=False), 1):
+        ref = f"bpsvar:{rec.domain}:{rec.var_id}"
+        raw = Path(raw_dir) / f"bps_var_{rec.domain}_{rec.var_id}.json" if raw_dir else None
+        try:
+            if raw is not None and raw.exists() and raw.stat().st_size > 0:
+                js = json.loads(raw.read_text(encoding="utf-8"))
+            else:
+                js = view_data(session, rec.domain, rec.var_id, key)
+                if raw is not None:
+                    raw.parent.mkdir(parents=True, exist_ok=True)
+                    raw.write_text(json.dumps(js, ensure_ascii=False), encoding="utf-8")
+                time.sleep(sleep_s)
+            d = parse_dynamic(js, str(rec.province_code), ref)
+            d = rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None))
+            if d.empty:
+                status["empty"] += 1
+                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY ({js.get('data-availability')})  {str(rec.title)[:60]}")
+                continue
+            parts.append(d)
+            status["ok"] += 1
+            yrs = sorted(set(d["year"].dropna().astype(int)))
+            log(f"  [{i}/{len(catalogue)}] {ref} ok rows={len(d)} years={yrs[:1]}..{yrs[-1:]}  {str(rec.title)[:60]}")
+        except Exception as e:  # noqa: BLE001
+            status["error"] += 1
+            log(f"  [{i}/{len(catalogue)}] {ref} ERROR {type(e).__name__}: {str(e)[:80]}")
+    log(f"dynamic tables: {status}")
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS)
 
 

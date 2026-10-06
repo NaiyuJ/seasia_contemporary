@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List
 
+import lxml.etree
 import lxml.html
 import pandas as pd
 
@@ -40,7 +41,12 @@ def _grid(rows) -> List[List[str]]:
 
 
 def read_html_tables(html: str) -> List[pd.DataFrame]:
-    doc = lxml.html.fromstring(html)
+    if not html or "<table" not in html.lower():
+        return []
+    try:
+        doc = lxml.html.fromstring(html)
+    except (lxml.etree.ParserError, ValueError):
+        return []
     out = []
     for table in doc.iter("table"):
         rows = [tr for tr in table.iter("tr")]
