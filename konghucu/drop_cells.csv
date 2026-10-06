@@ -1,0 +1,5 @@
+# unit-years left out of the religion panel because the source table is wrong for that cell.
+# Checked against the raw BPS cells with `bps-inspect --raw-rows`; see docs/konghucu_data_sources.md.
+unit_code,year,reason
+1271,2021,"bps:1200:2793 gives Sibolga islam 155207 (Tapanuli Tengah's 155188 in the same table) and buddha 15078; total 185939 for a city of 90k"
+1271,2025,"bpsvar:1200:804 gives Sibolga katolik 99747, more than the city's population"

@@ -6,6 +6,7 @@ collapsed here; do that with an explicit crosswalk once you have the panel.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -69,7 +70,23 @@ BAD_REFS = {
 }
 
 
-def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs: Optional[set] = None) -> pd.DataFrame:
+DROP_CELLS_FILE = Path(__file__).with_name("drop_cells.csv")
+
+
+def load_drop_cells(path: Optional[str] = None) -> pd.DataFrame:
+    """Hand-curated unit-years to leave out of the panel: columns unit_code, year, reason.
+    Used for source data-entry errors that no parser can fix (e.g. a province table
+    giving Sibolga another kabupaten's Muslim count). Kept in the repo, not in data/."""
+    f = Path(path) if path else DROP_CELLS_FILE
+    if not f.exists():
+        return pd.DataFrame(columns=["unit_code", "year", "reason"])
+    d = pd.read_csv(f, dtype={"unit_code": str}, comment="#")
+    d["year"] = d["year"].astype(int)
+    return d
+
+
+def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs: Optional[set] = None,
+                drop_cells: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """unit x year (x semester) wide table with one column per religion, plus
     konghucu share. When several sources cover the same cell, `prefer` orders them
     (default: arcgis, pdf, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
@@ -88,6 +105,13 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     # semester 0 = annual / unspecified (BPS yearbook tables); pandas drops NaN index keys
     df["semester"] = df["semester"].fillna(0).astype(int)
     df["year"] = df["year"].astype(int)
+    if drop_cells is not None and len(drop_cells):
+        keys = set(zip(drop_cells["unit_code"].astype(str), drop_cells["year"].astype(int)))
+        dropped = pd.Series([(c, y) in keys for c, y in zip(df["unit_code"], df["year"])], index=df.index)
+        if dropped.any():
+            print(f"build_panel: dropping {len(set(zip(df.loc[dropped, 'unit_code'], df.loc[dropped, 'year'])))} "
+                  f"unit-years listed in drop_cells")
+        df = df[~dropped]
     df["rank"] = df["source"].map({s: i for i, s in enumerate(prefer)}).fillna(len(prefer))
     df = df.sort_values("rank").drop_duplicates(["unit_code", "year", "semester", "religion"], keep="first")
     wide = df.pivot_table(index=["unit_code", "year", "semester"], columns="religion", values="count",
@@ -127,4 +151,21 @@ def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0, min_count: float = 
                 rows.append({"unit_code": code, "year_a": prev.year, "konghucu_a": prev.konghucu, "ref_a": prev.konghucu_ref,
                              "year_b": r.year, "konghucu_b": r.konghucu, "ref_b": r.konghucu_ref})
             prev = r
+    return pd.DataFrame(rows)
+
+
+def total_outliers(panel: pd.DataFrame, tol: float = 0.35, min_obs: int = 3) -> pd.DataFrame:
+    """Unit-years whose total is more than `tol` away from the unit's median total across
+    years. A kabupaten does not gain or lose a third of its population in a few years, so
+    these are almost always one religion's count copied from the wrong row in the source."""
+    p = panel.dropna(subset=["total"])
+    rows = []
+    for code, g in p.groupby("unit_code"):
+        if len(g) < min_obs:
+            continue
+        med = g["total"].median()
+        for r in g.itertuples(index=False):
+            if med > 0 and abs(r.total / med - 1) > tol:
+                rows.append({"unit_code": code, "year": r.year, "total": r.total, "median_total": med,
+                             "ratio": round(r.total / med, 2), "sources": r.sources})
     return pd.DataFrame(rows)

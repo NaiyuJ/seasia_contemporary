@@ -588,3 +588,22 @@ def test_konghucu_breaks_ignores_tiny_counts():
                           "konghucu_ref": ["a", "b"]})
     assert harmonize.konghucu_breaks(panel).empty
     assert len(harmonize.konghucu_breaks(panel, min_count=10)) == 1
+
+
+def test_drop_cells_and_total_outliers(tmp_path):
+    rows = []
+    for y, islam in [(2020, 54407), (2021, 155207), (2022, 54407)]:
+        for rel, n in [("islam", islam), ("kristen", 13191), ("konghucu", 48)]:
+            rows.append(dict(source="bps", province_code="12", unit_code="1271", unit_name="Sibolga", level="kota",
+                             religion=rel, year=y, semester=None, count=n, ref=f"bps:1200:{y}"))
+    long = pd.DataFrame(rows)
+    panel = harmonize.build_panel(long)
+    outl = harmonize.total_outliers(panel)
+    assert list(outl["year"]) == [2021]
+    f = tmp_path / "drop.csv"
+    f.write_text("# comment\nunit_code,year,reason\n1271,2021,wrong row\n")
+    panel2 = harmonize.build_panel(long, drop_cells=harmonize.load_drop_cells(str(f)))
+    assert list(panel2["year"]) == [2020, 2022]
+    assert harmonize.total_outliers(panel2).empty
+    shipped = harmonize.load_drop_cells()  # the repo's own list parses and has the expected columns
+    assert set(shipped.columns) == {"unit_code", "year", "reason"}

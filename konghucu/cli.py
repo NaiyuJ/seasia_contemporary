@@ -233,7 +233,8 @@ def cmd_harmonize(a):
     long = harmonize.attach_codes(long, codes)
     unmatched = long[~long["matched"] & (long["unit_name"] != "__PROVINCE__")]
     long.to_csv(_out(a.out_long), index=False)
-    panel = harmonize.build_panel(long, exclude_refs=set(a.exclude_refs or ()))
+    drop = harmonize.load_drop_cells(a.drop_cells)
+    panel = harmonize.build_panel(long, exclude_refs=set(a.exclude_refs or ()), drop_cells=drop)
     panel.to_csv(_out(a.out_panel), index=False)
     kab_rows = long[long["level"] != "kecamatan"]
     print(f"{len(long)} rows; non-kecamatan rows {len(kab_rows)}, of which matched to a code {int(kab_rows['matched'].sum())} "
@@ -253,6 +254,15 @@ def cmd_harmonize(a):
         print(breaks.to_string(index=False))
     else:
         print("no konghucu jumps >5x between adjacent observations")
+    outl = harmonize.total_outliers(panel)
+    out_outl = Path(a.out_panel).with_name("total_outliers.csv")
+    outl.to_csv(_out(str(out_outl)), index=False)
+    if len(outl):
+        print(f"unit-years whose total is >35% off the unit's median ({len(outl)}; a religion count copied from "
+              f"the wrong row in the source; add to konghucu/drop_cells.csv after checking) -> {out_outl}")
+        print(outl.to_string(index=False))
+    else:
+        print("no unit-year totals >35% off the unit's median")
 
 
 def build_parser():
@@ -323,6 +333,8 @@ def build_parser():
     h.add_argument("--exclude-refs", nargs="*", default=None, help="table refs to drop in addition to the built-in bad list")
     h.add_argument("--out-long", default="data/konghucu/religion_long.csv")
     h.add_argument("--out-panel", default="data/konghucu/religion_panel.csv")
+    h.add_argument("--drop-cells", default=None,
+                   help="CSV of unit_code,year,reason to leave out of the panel (default konghucu/drop_cells.csv)")
     h.set_defaults(func=cmd_harmonize)
     return p
 
