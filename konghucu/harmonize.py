@@ -68,9 +68,13 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None) -> pd.DataFra
     wide.columns.name = None
     src = df.groupby(["unit_code", "year", "semester"], dropna=False)["source"].agg(lambda s: ";".join(sorted(set(s))))
     wide = wide.merge(src.rename("sources").reset_index(), on=["unit_code", "year", "semester"], how="left")
+    rel_cols = [c for c in wide.columns if c in {"islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepercayaan", "lainnya"}]
+    summed = wide[rel_cols].sum(axis=1, min_count=1)
     if "total" not in wide.columns:
-        rel_cols = [c for c in wide.columns if c in {"islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepercayaan", "lainnya"}]
-        wide["total"] = wide[rel_cols].sum(axis=1, min_count=1)
+        wide["total"] = summed
+    else:  # cells whose source had no 'Jumlah' category (most dynamic tables): sum the religions
+        wide["total"] = wide["total"].fillna(summed)
+    wide["total_is_sum"] = wide["total"].eq(summed)  # True when total was not reported by the source
     if "konghucu" in wide.columns:
         wide["konghucu_share"] = wide["konghucu"] / wide["total"]
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)

@@ -226,7 +226,14 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
                 all(is_year(c) or not _is_number_like(c) for c in nonempty)
             if years_or_text or not any(_is_number_like(c) for c in header2):
                 data_start = h + 2  # header2 was a header row (years, possibly beside rowspan labels), not data
+        width = len(header)
+        first_rel_col = min(j for j, _, _ in rel_cols)
         for row in grid[data_start:]:
+            # a short row whose label sits where a code column is (e.g. 'Jumlah / Total' under
+            # 'Kode Wil.') has its values shifted left: right-align it to the header
+            if len(row) < width and first_rel_col >= 2 and len(row) >= 2 \
+                    and row[0] and not _is_number_like(row[0]) and _is_number_like(row[1]):
+                row = [""] * (width - len(row)) + list(row)
             name = next((c.strip() for c in row if c and c.strip() and not _is_number_like(c)), None)
             if not name:
                 continue

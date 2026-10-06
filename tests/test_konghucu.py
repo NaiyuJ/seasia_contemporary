@@ -470,3 +470,25 @@ def test_two_total_rows_and_percent_row():
     d2 = bps_api.parse_religion_html(html2, "35", 2019, "y")
     assert (d2["unit_name"] == "__PROVINCE__").sum() == 2
     assert d2[d2["unit_name"] == "__PROVINCE__"]["count"].tolist() == [300, 30]
+
+
+def test_short_total_row_under_code_column_is_right_aligned():
+    html = """<table><tr><th>Kode Wil.</th><th>Kecamatan</th><th>Islam</th><th>Kristen</th><th>Budha</th></tr>
+    <tr><td>3503010</td><td>Panggul</td><td>91,416</td><td>69</td><td>3</td></tr>
+    <tr><td>3503020</td><td>Munjungan</td><td>57,871</td><td>124</td><td>-</td></tr>
+    <tr><td>Jumlah / Total</td><td>149,287</td><td>193</td><td>3</td></tr></table>"""
+    d = bps_api.parse_religion_html(html, "35", 2014, "x")
+    t = d[d["unit_name"] == "__PROVINCE__"].set_index("religion")["count"]
+    assert t["islam"] == 149287 and t["kristen"] == 193 and t["buddha"] == 3
+    assert d[(d["unit_name"] == "Panggul") & (d["religion"] == "islam")]["count"].item() == 91416
+
+
+def test_panel_total_filled_from_religions_when_missing():
+    long = pd.DataFrame([
+        dict(source="bpsvar", province_code="61", unit_code="6171", unit_name="Pontianak", year=2021, semester=None, religion=r, count=v, ref="a")
+        for r, v in [("islam", 500), ("buddha", 80), ("konghucu", 3)]
+    ] + [dict(source="bps", province_code="61", unit_code="6101", unit_name="Sambas", year=2021, semester=None, religion=r, count=v, ref="b")
+         for r, v in [("islam", 90), ("konghucu", 1), ("total", 100)]])
+    panel = harmonize.build_panel(long).set_index("unit_code")
+    assert panel.loc["6171", "total"] == 583 and abs(panel.loc["6171", "konghucu_share"] - 3 / 583) < 1e-12
+    assert panel.loc["6101", "total"] == 100 and bool(panel.loc["6171", "total_is_sum"]) and not bool(panel.loc["6101", "total_is_sum"])
