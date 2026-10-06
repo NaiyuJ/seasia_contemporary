@@ -443,3 +443,13 @@ def test_catalogue_load_dedupes(tmp_path):
     ck = _Checkpoint(out, resume=False, columns=STATIC_COLS)
     ck("6101", [row]); ck("6101", [row])
     assert len(ck.load()) == 1
+
+
+def test_build_panel_drops_rows_without_year(capsys):
+    long = pd.DataFrame([
+        dict(source="bps", province_code="61", unit_code="6101", unit_name="Sambas", year=2020, semester=None, religion="konghucu", count=5, ref="a"),
+        dict(source="bps", province_code="61", unit_code="6101", unit_name="Sambas", year=None, semester=None, religion="konghucu", count=9, ref="b"),
+    ])
+    panel = harmonize.build_panel(long)
+    assert len(panel) == 1 and panel.iloc[0]["konghucu"] == 5
+    assert "dropping 1 rows" in capsys.readouterr().out

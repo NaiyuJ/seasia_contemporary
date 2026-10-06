@@ -53,6 +53,11 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None) -> pd.DataFra
     semester is 0 when the source is annual."""
     prefer = prefer or ["arcgis", "pdf", "bpsvar", "bps", "bps_kabsum"]
     df = long[long["unit_code"].notna() & long["count"].notna()].copy()
+    no_year = df["year"].isna()
+    if no_year.any():
+        refs = sorted(set(df.loc[no_year, "ref"].astype(str)))
+        print(f"build_panel: dropping {int(no_year.sum())} rows without a year from {len(refs)} tables: {refs[:10]}")
+        df = df[~no_year]
     # semester 0 = annual / unspecified (BPS yearbook tables); pandas drops NaN index keys
     df["semester"] = df["semester"].fillna(0).astype(int)
     df["year"] = df["year"].astype(int)
