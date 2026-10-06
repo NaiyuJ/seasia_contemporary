@@ -242,8 +242,8 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
                 continue
             nm = norm_label(name)
             if nm in {"kabupaten/kota", "kabupaten", "kota", "wilayah", "daerah", "kecamatan", "no", "no."} \
-                    or canonical_religion(nm) is not None and nm not in {"jumlah", "total"}:
-                continue
+                    or canonical_religion(nm) not in (None, "total"):
+                continue  # a religion name as a row label: header leftover, not a unit
             if re.search(r"persen|%|rasio|rata rata|proporsi|share", nm):
                 continue  # a percentage / ratio row, not a count
             row_year = year_from_text(nm)
