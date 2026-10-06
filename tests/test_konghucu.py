@@ -453,3 +453,20 @@ def test_build_panel_drops_rows_without_year(capsys):
     panel = harmonize.build_panel(long)
     assert len(panel) == 1 and panel.iloc[0]["konghucu"] == 5
     assert "dropping 1 rows" in capsys.readouterr().out
+
+
+def test_two_total_rows_and_percent_row():
+    html = """<table><tr><th>Kecamatan</th><th>Islam</th><th>Buddha</th></tr>
+    <tr><td>Panggul</td><td>100</td><td>10</td></tr><tr><td>Munjungan</td><td>200</td><td>20</td></tr>
+    <tr><td>Persentase</td><td>33,3</td><td>33,3</td></tr>
+    <tr><td>Trenggalek 2019</td><td>300</td><td>30</td></tr><tr><td>Trenggalek 2018</td><td>298</td><td>29</td></tr></table>"""
+    d = bps_api.parse_religion_html(html, "35", 2019, "x")
+    assert "Persentase" not in set(d["unit_name"])
+    r = bps_api.rollup_kabupaten_domain(d, "3503", "Trenggalek")
+    kab = r[r["level"] == "kabupaten"]
+    assert kab[kab["religion"] == "islam"]["count"].item() == 300 and len(kab) == 2
+    # previous-year 'Jumlah 2018' rows are dropped at parse time
+    html2 = html.replace("Trenggalek 2019", "Jumlah").replace("Trenggalek 2018", "Jumlah 2018")
+    d2 = bps_api.parse_religion_html(html2, "35", 2019, "y")
+    assert (d2["unit_name"] == "__PROVINCE__").sum() == 2
+    assert d2[d2["unit_name"] == "__PROVINCE__"]["count"].tolist() == [300, 30]

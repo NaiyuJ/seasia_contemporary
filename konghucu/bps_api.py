@@ -234,6 +234,11 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             if nm in {"kabupaten/kota", "kabupaten", "kota", "wilayah", "daerah", "kecamatan", "no", "no."} \
                     or canonical_religion(nm) is not None and nm not in {"jumlah", "total"}:
                 continue
+            if re.search(r"persen|%|rasio|rata rata|proporsi|share", nm):
+                continue  # a percentage / ratio row, not a count
+            row_year = year_from_text(nm)
+            if row_year and year and row_year != year and re.search(r"jumlah|total", nm):
+                continue  # a previous year's total row ('Jumlah 2018' in a 2019 table)
             vals = [(j, rel, yr, parse_count(row[j]) if j < len(row) else None) for j, rel, yr in rel_cols]
             if all(v is None for *_, v in vals):
                 continue
@@ -504,10 +509,16 @@ def _rows_equal_to_sum_of_others(d: pd.DataFrame, tol: float = 0.01) -> pd.Serie
         gr = g[g["religion"] == rel]
         if gr["unit_name"].nunique() < 3:
             continue
-        per_unit = gr.groupby("unit_name")["count"].sum()
-        s = per_unit.sum()
-        for u, v in per_unit.items():
-            if v > 0 and abs(v - (s - v)) <= tol * s:
+        per_unit = gr.groupby("unit_name")["count"].sum().sort_values(ascending=False)
+        top = per_unit.iloc[0]
+        if top <= 0:
+            continue
+        # candidates: rows within 3% of the largest (this year's and previous years' totals);
+        # they are totals if the largest equals the sum of everything else
+        cands = per_unit[per_unit >= 0.97 * top]
+        rest = per_unit[per_unit < 0.97 * top].sum()
+        if len(cands) < len(per_unit) and abs(top - rest) <= tol * max(top, rest):
+            for u in cands.index:
                 flag |= (d["unit_name"] == u) & ((d["year"] == yr) | (d["year"].isna() & pd.isna(yr)))
     return flag
 
@@ -543,6 +554,8 @@ def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional
     kec["level"] = "kecamatan"
     kec["unit_code"] = None
     tot = d[is_total].copy()
+    if len(tot):  # several total-like rows: keep one per (year, religion), the largest
+        tot = tot.sort_values("count", ascending=False).drop_duplicates(["year", "religion"], keep="first")
     if tot.empty:
         tot = (kec.dropna(subset=["count"]).groupby(["year", "religion"], dropna=False)["count"].sum()
                .reset_index())
