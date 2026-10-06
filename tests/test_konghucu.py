@@ -558,3 +558,26 @@ def test_bare_name_prefers_kabupaten_and_national_fallback(tmp_path):
 def test_census_vintage_labels_are_not_units():
     from konghucu.religion import is_unit_name
     assert not is_unit_name("SP2010") and not is_unit_name("SP 1971") and is_unit_name("Karangasem")
+
+
+def test_kecamatan_rows_never_get_codes_or_enter_panel(tmp_path):
+    codes = tmp_path / "codes.csv"
+    pd.DataFrame({"unit_code": ["1274"], "unit_name": ["Kota Tebing Tinggi"]}).to_csv(codes, index=False)
+    ct = harmonize.load_code_table(str(codes))
+    long = pd.DataFrame([
+        dict(source="bpsvar", province_code="16", unit_code=None, unit_name="Tebing Tinggi", level="kecamatan", year=2020, semester=None, religion="islam", count=7000, ref="bpsvar:1604:1"),
+        dict(source="bps", province_code="12", unit_code=None, unit_name="74 Tebing Tinggi", level="kota", year=2020, semester=None, religion="islam", count=125423, ref="bps:1200:2289"),
+        dict(source="bps", province_code="12", unit_code=None, unit_name="74 Tebing Tinggi", level="kota", year=2020, semester=None, religion="konghucu", count=337, ref="bps:1200:2289"),
+    ])
+    out = harmonize.attach_codes(long, ct)
+    assert out.loc[0, "unit_code"] is None or pd.isna(out.loc[0, "unit_code"])
+    assert out.loc[1, "unit_code"] == "1274"
+    panel = harmonize.build_panel(out)
+    assert len(panel) == 1 and panel.iloc[0]["islam"] == 125423 and panel.iloc[0]["konghucu_ref"] == "bps:1200:2289"
+
+
+def test_konghucu_breaks():
+    panel = pd.DataFrame({"unit_code": ["1275"] * 3, "year": [2020, 2021, 2022], "konghucu": [11194, 285, 11194],
+                          "konghucu_ref": ["a", "b", "a"]})
+    br = harmonize.konghucu_breaks(panel)
+    assert len(br) == 2 and br.iloc[0]["ref_b"] == "b"

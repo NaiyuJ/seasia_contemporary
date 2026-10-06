@@ -244,6 +244,15 @@ def cmd_harmonize(a):
         print(f"{len(g)} unmatched non-kecamatan names (all listed):")
         print(g.sort_values(["province_code", "unit_name"]).to_string(index=False))
     print(f"panel: {len(panel)} unit-year cells, {panel['unit_code'].nunique()} units -> {a.out_panel}")
+    breaks = harmonize.konghucu_breaks(panel)
+    out_breaks = Path(a.out_panel).with_name("konghucu_breaks.csv")
+    breaks.to_csv(_out(str(out_breaks)), index=False)
+    if len(breaks):
+        print(f"konghucu count jumps >5x between adjacent observations ({len(breaks)}; likely Kemenag vs Dukcapil "
+              f"source switch, see docs/konghucu_data_sources.md) -> {out_breaks}")
+        print(breaks.to_string(index=False))
+    else:
+        print("no konghucu jumps >5x between adjacent observations")
 
 
 def build_parser():

@@ -42,3 +42,9 @@
 - `bps:6400:321`（东加里曼丹 2015，Kemenag 口径）：Samarinda 孔教 32,001 人，比任何其他来源高一个数量级，原表如此。已列入排除名单。
 - 东爪哇、日惹大多数县级表没有孔教列，孔教并在 Lainnya 里。这些县只能把 Lainnya 当上界。
 - 县级表的总计行标签不统一（Jumlah、县名、年份、或没有），识别顺序是：Jumlah 标签，等于其他行之和，县名且明显最大，最后加总 kecamatan（source 记为 bps_kabsum）。
+
+## 两套口径：Kemenag 与 Dukcapil
+
+同一个县的孔教人数在不同年份的表里可以差几十倍，不是解析错误。北苏门答腊的例子：Medan 在 2020 和 2022 的 "Jumlah Umat Agama" 表里是 11,194，在 2021 的 "Penduduk Menurut Agama yang Dianut" 表和 2025 动态表里是 285 和 406。前者是宗教部（Kemenag）按宗教组织申报统计的信众，后者是人口登记局（Dukcapil）按身份证宗教栏统计的登记人口。研究设计里"改身份证宗教为孔教"这个有成本的行为对应的是 Dukcapil 口径。
+
+面板里 `konghucu_ref` 标明每个值来自哪张表；`harmonize` 会把相邻年份跳 5 倍以上的县年列出并写到 `konghucu_breaks.csv`。做面板回归前要按口径分开，或只用一种口径的年份。BPS 表的标题通常不写来源，判断方法：看该表的 `Sumber` 脚注（原始 HTML 最后几行），或比较同一县在两张表里的倍数关系。

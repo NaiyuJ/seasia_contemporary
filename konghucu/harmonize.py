@@ -32,7 +32,11 @@ def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
     df["unit_code"] = df["unit_code"].where(df["unit_code"].notna() & (df["unit_code"] != ""), None)
     df["unit_code"] = df["unit_code"].map(lambda c: str(c).zfill(4) if c is not None and str(c) != "nan" else None)
     df["unit_key"] = df["unit_name"].map(squash_unit_name)
-    missing = df["unit_code"].isna() & (df["unit_name"] != "__PROVINCE__")
+    if "level" not in df.columns:
+        df["level"] = df["unit_name"].map(unit_level)
+    # kecamatan rows (from kabupaten-domain tables) never get a kabupaten code: their names
+    # collide with kabupaten/kota names elsewhere ('Tebing Tinggi', 'Medan', 'Bogor')
+    missing = df["unit_code"].isna() & (df["unit_name"] != "__PROVINCE__") & (df["level"] != "kecamatan")
     by_level = codes.set_index(["province_code", "level", "unit_key"])["unit_code"]
     by_level = by_level[~by_level.index.duplicated()]
     uniq = codes.drop_duplicates(["province_code", "unit_key"], keep=False).set_index(["province_code", "unit_key"])["unit_code"]
@@ -74,6 +78,8 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     prefer = prefer or ["arcgis", "pdf", "bpsvar", "bps", "bps_kabsum"]
     bad = BAD_REFS | set(exclude_refs or ())
     df = long[long["unit_code"].notna() & long["count"].notna() & ~long["ref"].isin(bad)].copy()
+    if "level" in df.columns:
+        df = df[df["level"] != "kecamatan"]
     no_year = df["year"].isna()
     if no_year.any():
         refs = sorted(set(df.loc[no_year, "ref"].astype(str)))
@@ -89,6 +95,8 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     wide.columns.name = None
     src = df.groupby(["unit_code", "year", "semester"], dropna=False)["source"].agg(lambda s: ";".join(sorted(set(s))))
     wide = wide.merge(src.rename("sources").reset_index(), on=["unit_code", "year", "semester"], how="left")
+    kref = df[df["religion"] == "konghucu"].groupby(["unit_code", "year", "semester"])["ref"].first().rename("konghucu_ref")
+    wide = wide.merge(kref.reset_index(), on=["unit_code", "year", "semester"], how="left")
     rel_cols = [c for c in wide.columns if c in {"islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepercayaan", "lainnya"}]
     summed = wide[rel_cols].sum(axis=1, min_count=1)
     if "total" not in wide.columns:
@@ -99,3 +107,22 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     if "konghucu" in wide.columns:
         wide["konghucu_share"] = wide["konghucu"] / wide["total"]
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)
+
+
+def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0) -> pd.DataFrame:
+    """Units whose konghucu count jumps by more than `ratio` between consecutive observed
+    years: usually a change of source definition (Kemenag adherent counts vs Dukcapil
+    ID-card registration), not a real change. One row per jump with both refs."""
+    if "konghucu" not in panel.columns:
+        return pd.DataFrame()
+    p = panel.dropna(subset=["konghucu"]).sort_values(["unit_code", "year"])
+    rows = []
+    for code, g in p.groupby("unit_code"):
+        prev = None
+        for r in g.itertuples(index=False):
+            if prev is not None and min(prev.konghucu, r.konghucu) > 0 and \
+                    max(prev.konghucu, r.konghucu) / min(prev.konghucu, r.konghucu) > ratio:
+                rows.append({"unit_code": code, "year_a": prev.year, "konghucu_a": prev.konghucu, "ref_a": prev.konghucu_ref,
+                             "year_b": r.year, "konghucu_b": r.konghucu, "ref_b": r.konghucu_ref})
+            prev = r
+    return pd.DataFrame(rows)
