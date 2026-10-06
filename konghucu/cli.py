@@ -112,6 +112,9 @@ def cmd_bps_fetch(a):
     df = pd.concat(parts, ignore_index=True)
     df.to_csv(_out(a.out), index=False)
     print(f"{len(df)} rows from {df['ref'].nunique()} tables -> {a.out}")
+    if df.empty or "level" not in df.columns:
+        print("nothing parsed; run `python -m konghucu.cli bps-probe` and paste the output")
+        return
     k = df[(df["religion"] == "konghucu") & (df["unit_name"] != "__PROVINCE__") & (df["level"] != "kecamatan")]
     if len(k):
         print("konghucu rows at kabupaten level (or unit rows of province tables), by province and year:")
@@ -119,6 +122,23 @@ def cmd_bps_fetch(a):
               .fillna(0).astype(int).to_string())
     else:
         print("no konghucu rows found; inspect data/raw/bps and the column headers")
+
+
+def cmd_bps_probe(a):
+    """Print the raw API responses for one static table and one dynamic variable."""
+    import json
+    key = bps_api.get_key()
+    s = requests.Session()
+    print(f"== static table view: domain={a.domain} table_id={a.table_id}")
+    js = bps_api.view_static_table_raw(s, a.domain, a.table_id, key)
+    txt = json.dumps(js, ensure_ascii=False)
+    print(txt[:a.chars])
+    print(f"... ({len(txt)} chars total)")
+    print(f"== dynamic data view: domain={a.var_domain} var_id={a.var_id}")
+    js = bps_api.view_data(s, a.var_domain, a.var_id, key)
+    txt = json.dumps(js, ensure_ascii=False)
+    print(txt[:a.chars])
+    print(f"... ({len(txt)} chars total)")
 
 
 def cmd_arcgis_discover(a):
@@ -192,6 +212,12 @@ def build_parser():
     f.add_argument("--raw-dir", default="data/raw/bps")
     f.add_argument("--out", default="data/konghucu/bps_long.csv")
     f.set_defaults(func=cmd_bps_fetch)
+
+    pr = sp.add_parser("bps-probe", help="print raw API responses for one static table and one variable")
+    pr.add_argument("--domain", default="1200"); pr.add_argument("--table-id", default="2793")
+    pr.add_argument("--var-domain", default="1200"); pr.add_argument("--var-id", default="804")
+    pr.add_argument("--chars", type=int, default=1500)
+    pr.set_defaults(func=cmd_bps_probe)
 
     d = sp.add_parser("arcgis-discover", help="scan GIS Dukcapil for layers with religion fields")
     d.add_argument("--base", default=arcgis.DEFAULT_BASE)

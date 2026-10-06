@@ -72,10 +72,14 @@ def list_static_tables(session, domain: str, keyword: str, key: str, lang: str =
     return out
 
 
-def view_static_table(session, domain: str, table_id: str | int, key: str, lang: str = "ind") -> dict:
+def view_static_table_raw(session, domain: str, table_id: str | int, key: str, lang: str = "ind") -> dict:
     url = f"{BASE}/view/model/statictable/lang/{lang}/domain/{domain}/id/{table_id}/key/{key}"
-    js = _get_json(session, url)
-    return js.get("data") or {}
+    return _get_json(session, url)
+
+
+def view_static_table(session, domain: str, table_id: str | int, key: str, lang: str = "ind") -> dict:
+    js = view_static_table_raw(session, domain, table_id, key, lang)
+    return js.get("data") if isinstance(js.get("data"), dict) else {}
 
 
 RELIGION_POP_RE = r"(penduduk|umat|pemeluk|penganut)[^|]*agama|agama[^|]*(penduduk|umat|pemeluk|penganut)|agama yang dianut"
@@ -221,16 +225,24 @@ def fetch_tables(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.
                 html = raw.read_text(encoding="utf-8")
                 title = json.loads(meta.read_text()).get("title") if meta and meta.exists() else rec.title
             else:
-                data = view_static_table(session, rec.domain, rec.table_id, key)
+                full = view_static_table_raw(session, rec.domain, rec.table_id, key)
+                data = full.get("data") if isinstance(full.get("data"), dict) else {}
                 html, title = data.get("table") or "", data.get("title") or rec.title
                 if raw is not None:
                     raw.parent.mkdir(parents=True, exist_ok=True)
                     raw.write_text(html, encoding="utf-8")
-                    meta.write_text(json.dumps({"title": title}, ensure_ascii=False))
+                    meta.write_text(json.dumps({"title": title, "response_keys": list(full.keys()),
+                                                "status": full.get("status"), "message": full.get("message"),
+                                                "data_type": type(full.get("data")).__name__,
+                                                "data_keys": list(data.keys())}, ensure_ascii=False))
                 time.sleep(sleep_s)
             if not html or "<table" not in html.lower():
                 status["empty"] += 1
-                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY  {str(rec.title)[:70]}")
+                why = ""
+                if meta is not None and meta.exists():
+                    m = json.loads(meta.read_text())
+                    why = f" status={m.get('status')} msg={str(m.get('message'))[:60]} data_keys={m.get('data_keys')}"
+                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY{why}  {str(rec.title)[:50]}")
                 continue
             d = parse_religion_html(html, str(rec.province_code), year_from_text(title), ref)
             d = rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None))
@@ -372,7 +384,8 @@ def fetch_vars(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.3,
             d = rollup_kabupaten_domain(d, str(rec.domain), getattr(rec, "domain_name", None))
             if d.empty:
                 status["empty"] += 1
-                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY ({js.get('data-availability')})  {str(rec.title)[:60]}")
+                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY avail={js.get('data-availability')} status={js.get('status')} "
+                    f"msg={str(js.get('message'))[:60]} keys={list(js.keys())[:8]}  {str(rec.title)[:40]}")
                 continue
             parts.append(d)
             status["ok"] += 1
