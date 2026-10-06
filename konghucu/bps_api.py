@@ -350,7 +350,7 @@ def search_vars_all_provinces(session, key: str, keyword: str = "agama", sleep_s
     return pd.DataFrame(rows, columns=cols)
 
 
-DEFAULT_TH = "100:130"  # BPS year ids are year - 1900; 100:130 = 2000..2030
+DEFAULT_TH = "125;124"  # BPS year ids are year - 1900; the data endpoint accepts at most 2 per call
 
 
 def list_years(session, domain: str, var_id: str | int, key: str, lang: str = "ind") -> List[dict]:
@@ -367,10 +367,33 @@ def list_years(session, domain: str, var_id: str | int, key: str, lang: str = "i
 
 def view_data(session, domain: str, var_id: str | int, key: str, lang: str = "ind",
               th: Optional[str] = None) -> dict:
-    """The data endpoint requires `th`: year ids, ':' for a range, ';' for a list."""
+    """The data endpoint requires `th`: year ids joined by ';', at most 2 per call."""
     th = th or DEFAULT_TH
     url = f"{BASE}/list/model/data/lang/{lang}/domain/{domain}/var/{var_id}/th/{th}/key/{key}"
     return _get_json(session, url)
+
+
+def view_data_all_years(session, domain: str, var_id: str | int, key: str, lang: str = "ind",
+                        sleep_s: float = 0.3) -> dict:
+    """Fetch every available year two at a time and merge into one response dict
+    (vervar/var/turvar/turtahun from the first answer, tahun and datacontent unioned)."""
+    years = list_years(session, domain, var_id, key, lang)
+    ids = [str(y["th_id"]) for y in years if y.get("th_id") is not None]
+    if not ids:
+        return view_data(session, domain, var_id, key, lang)
+    merged: dict = {}
+    for i in range(0, len(ids), 2):
+        js = view_data(session, domain, var_id, key, lang, th=";".join(ids[i:i + 2]))
+        if js.get("data-availability") != "available":
+            continue
+        if not merged:
+            merged = {k: v for k, v in js.items() if k not in ("tahun", "datacontent")}
+            merged["tahun"], merged["datacontent"] = [], {}
+        seen = {t["val"] for t in merged["tahun"]}
+        merged["tahun"].extend(t for t in js.get("tahun", []) if t["val"] not in seen)
+        merged["datacontent"].update(js.get("datacontent") or {})
+        time.sleep(sleep_s)
+    return merged or {"data-availability": "not-available", "message": "no year returned data"}
 
 
 def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bps") -> pd.DataFrame:
@@ -424,7 +447,7 @@ def fetch_vars(session, catalogue: pd.DataFrame, key: str, sleep_s: float = 0.3,
             if raw is not None and raw.exists() and raw.stat().st_size > 0:
                 js = json.loads(raw.read_text(encoding="utf-8"))
             else:
-                js = view_data(session, rec.domain, rec.var_id, key)
+                js = view_data_all_years(session, rec.domain, rec.var_id, key, sleep_s=sleep_s)
                 if raw is not None:
                     raw.parent.mkdir(parents=True, exist_ok=True)
                     raw.write_text(json.dumps(js, ensure_ascii=False), encoding="utf-8")

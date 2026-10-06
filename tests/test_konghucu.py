@@ -342,3 +342,26 @@ def test_fetch_tables_skips_bad_tables_and_reuses_raw(tmp_path):
     df2 = bps_api.fetch_tables(s, cat, "k", sleep_s=0, raw_dir=str(tmp_path), log=logs.append)
     assert len(calls) == n + 1            # tables 1 and 3 come from raw_dir; only the empty one is re-fetched
     assert df2.equals(df)
+
+
+def test_view_data_all_years_merges_two_year_chunks():
+    calls = []
+
+    def router(url, params):
+        if "/model/th/" in url:
+            return {"data": [{"total": 3}, [{"th_id": 121, "th": "2021"}, {"th_id": 122, "th": "2022"}, {"th_id": 123, "th": "2023"}]]}
+        if "/model/data/" in url:
+            th = url.split("/th/")[1].split("/")[0]
+            calls.append(th)
+            ids = th.split(";")
+            return {"data-availability": "available", "vervar": [{"val": 6101, "label": "Sambas"}],
+                    "var": [{"val": 55, "label": "Penduduk Menurut Agama"}], "turvar": [{"val": 6, "label": "Khonghucu"}],
+                    "tahun": [{"val": int(i), "label": str(1900 + int(i))} for i in ids], "turtahun": [{"val": 0, "label": ""}],
+                    "datacontent": {f"6101556{i}0": int(i) for i in ids}}
+        return {"data-availability": "list-not-available", "data": []}
+    s = FakeSession({"webapi.bps.go.id": router})
+    js = bps_api.view_data_all_years(s, "6100", 55, "k", sleep_s=0)
+    assert calls == ["121;122", "123"]
+    assert [t["val"] for t in js["tahun"]] == [121, 122, 123] and len(js["datacontent"]) == 3
+    df = bps_api.parse_dynamic(js, "61", "x")
+    assert sorted(df["year"]) == [2021, 2022, 2023]

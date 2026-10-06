@@ -136,8 +136,8 @@ def cmd_bps_probe(a):
     print(f"... ({len(txt)} chars total)")
     print(f"== years for var: domain={a.var_domain} var_id={a.var_id}")
     print(bps_api.list_years(s, a.var_domain, a.var_id, key))
-    print(f"== dynamic data view: domain={a.var_domain} var_id={a.var_id} th={a.th}")
-    js = bps_api.view_data(s, a.var_domain, a.var_id, key, th=a.th)
+    print(f"== dynamic data view: domain={a.var_domain} var_id={a.var_id} (all years, 2 per call)")
+    js = bps_api.view_data_all_years(s, a.var_domain, a.var_id, key)
     txt = json.dumps(js, ensure_ascii=False)
     print(txt[:a.chars])
     print(f"... ({len(txt)} chars total)")
@@ -218,7 +218,6 @@ def build_parser():
     pr = sp.add_parser("bps-probe", help="print raw API responses for one static table and one variable")
     pr.add_argument("--domain", default="1200"); pr.add_argument("--table-id", default="2793")
     pr.add_argument("--var-domain", default="1200"); pr.add_argument("--var-id", default="804")
-    pr.add_argument("--th", default=bps_api.DEFAULT_TH)
     pr.add_argument("--chars", type=int, default=1500)
     pr.set_defaults(func=cmd_bps_probe)
 
