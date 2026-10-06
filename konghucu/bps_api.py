@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Sequence
 import pandas as pd
 
 from .htmltable import grid_tables, read_html_tables, unescape_if_needed
-from .religion import (LONG_COLUMNS, PROVINCES, canonical_religion, norm_label, parse_count,
+from .religion import (LONG_COLUMNS, PROVINCES, canonical_religion, is_unit_name, norm_label, parse_count,
                        unit_level, norm_unit_name, year_from_text)
 
 BASE = "https://webapi.bps.go.id/v1/api"
@@ -172,6 +172,16 @@ def _flatten_columns(cols) -> List[str]:
     return out
 
 
+def _block_level(label: str):
+    """'Kabupaten/ Regency' -> 'kabupaten', 'Kota/ Municipality' -> 'kota', else None."""
+    nm = norm_label(label)
+    if re.fullmatch(r"(kabupaten|kab|regency)(\s*/\s*regency)?", nm):
+        return "kabupaten"
+    if re.fullmatch(r"(kota|municipality|kota adm(inistrasi)?)(\s*/\s*municipality)?", nm):
+        return "kota"
+    return None
+
+
 def _is_number_like(cell: str) -> bool:
     c = (cell or "").strip()
     return bool(c) and parse_count(c) is not None and not re.search(r"[A-Za-z]{3,}", c)
@@ -219,6 +229,8 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
         if not rel_cols:
             continue
         data_start = h + 1
+        if header2 is not None and any(_block_level(c) for c in header2 if c):
+            header2 = None  # a 'Kabupaten / Regency' block label, handled as data below
         if header2 is not None:
             nonempty = [c.strip() for c in header2 if c and c.strip()]
             is_year = lambda c: bool(re.fullmatch(r"(19|20)\d{2}(/\d{2,4})?", c))
@@ -228,6 +240,7 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
                 data_start = h + 2  # header2 was a header row (years, possibly beside rowspan labels), not data
         width = len(header)
         first_rel_col = min(j for j, _, _ in rel_cols)
+        block_level = None  # 'kabupaten' / 'kota' sub-header rows in province tables
         for row in grid[data_start:]:
             # a short row whose label sits where a code column is (e.g. 'Jumlah / Total' under
             # 'Kode Wil.') has its values shifted left: right-align it to the header
@@ -241,6 +254,11 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             if not name:
                 continue
             nm = norm_label(name)
+            if _block_level(name):
+                block_level = _block_level(name)
+                continue
+            if not is_unit_name(name):
+                continue
             if nm in {"kabupaten/kota", "kabupaten", "kota", "wilayah", "daerah", "kecamatan", "no", "no."} \
                     or canonical_religion(nm) not in (None, "total"):
                 continue  # a religion name as a row label: header leftover, not a unit
@@ -258,12 +276,15 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             prov_nm = norm_label(PROVINCES.get(province_code, "")).replace(" ", "")
             is_prov_total = nm.replace(" ", "") == prov_nm or nm.startswith("provinsi") \
                 or nm.startswith("jumlah") or nm.startswith("total")
+            lvl = unit_level(name)
+            if lvl == "unknown" and block_level:
+                lvl = block_level
             for j, rel, yr, v in vals:
                 frames.append({"source": source, "province_code": province_code, "unit_code": None,
                                "unit_name": "__PROVINCE__" if is_prov_total else name,
-                               "year": yr or year, "semester": None, "religion": rel, "count": v, "ref": ref})
-    df = pd.DataFrame(frames, columns=LONG_COLUMNS)
-    df["level"] = df["unit_name"].map(unit_level)
+                               "year": yr or year, "semester": None, "religion": rel, "count": v, "ref": ref,
+                               "level": lvl})
+    df = pd.DataFrame(frames, columns=LONG_COLUMNS + ["level"])
     df["unit_name_norm"] = df["unit_name"].map(norm_unit_name)
     return df
 
@@ -440,6 +461,8 @@ def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bpsvar"
     rows = []
     for vv in vervar:
         region = str(vv.get("label", "")).strip()
+        if not is_unit_name(region):
+            continue
         for tv in turvar:
             rel = canonical_religion(tv.get("label", ""))
             if rel is None and len(turvar) > 1:

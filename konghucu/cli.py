@@ -233,12 +233,16 @@ def cmd_harmonize(a):
     long = harmonize.attach_codes(long, codes)
     unmatched = long[~long["matched"] & (long["unit_name"] != "__PROVINCE__")]
     long.to_csv(_out(a.out_long), index=False)
-    panel = harmonize.build_panel(long)
+    panel = harmonize.build_panel(long, exclude_refs=set(a.exclude_refs or ()))
     panel.to_csv(_out(a.out_panel), index=False)
-    print(f"{len(long)} rows, {int(long['matched'].sum())} matched to a code; "
-          f"{unmatched['unit_name'].nunique()} unmatched names -> {a.out_long}")
-    if len(unmatched):
-        print(unmatched[["province_code", "unit_name", "ref"]].drop_duplicates().head(40).to_string(index=False))
+    kab_rows = long[long["level"] != "kecamatan"]
+    print(f"{len(long)} rows; non-kecamatan rows {len(kab_rows)}, of which matched to a code {int(kab_rows['matched'].sum())} "
+          f"-> {a.out_long}")
+    um = unmatched[unmatched["level"] != "kecamatan"]
+    if len(um):
+        g = um.groupby(["province_code", "unit_name"]).agg(rows=("ref", "size"), refs=("ref", lambda s: ";".join(sorted(set(s))[:3]))).reset_index()
+        print(f"{len(g)} unmatched non-kecamatan names (all listed):")
+        print(g.sort_values(["province_code", "unit_name"]).to_string(index=False))
     print(f"panel: {len(panel)} unit-year cells, {panel['unit_code'].nunique()} units -> {a.out_panel}")
 
 
@@ -307,6 +311,7 @@ def build_parser():
     h = sp.add_parser("harmonize", help="attach BPS codes and build the unit x year panel")
     h.add_argument("--codes", required=True, help="CSV with unit_code, unit_name")
     h.add_argument("--inputs", nargs="+", required=True, help="long CSVs from the fetch commands")
+    h.add_argument("--exclude-refs", nargs="*", default=None, help="table refs to drop in addition to the built-in bad list")
     h.add_argument("--out-long", default="data/konghucu/religion_long.csv")
     h.add_argument("--out-panel", default="data/konghucu/religion_panel.csv")
     h.set_defaults(func=cmd_harmonize)

@@ -10,7 +10,7 @@ from typing import Optional
 
 import pandas as pd
 
-from .religion import norm_unit_name, unit_level
+from .religion import norm_unit_name, squash_unit_name, unit_level
 
 
 def load_code_table(path: str) -> pd.DataFrame:
@@ -21,7 +21,8 @@ def load_code_table(path: str) -> pd.DataFrame:
     codes.loc[codes["level"] == "unknown", "level"] = codes["unit_code"].str[2].map(
         lambda c: "kota" if c == "7" else "kabupaten")  # BPS: kota codes are xx71-xx79
     codes["unit_name_norm"] = codes["unit_name"].map(norm_unit_name)
-    return codes[["unit_code", "unit_name", "province_code", "level", "unit_name_norm"]]
+    codes["unit_key"] = codes["unit_name"].map(squash_unit_name)
+    return codes[["unit_code", "unit_name", "province_code", "level", "unit_name_norm", "unit_key"]]
 
 
 def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
@@ -29,30 +30,40 @@ def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
     when the level is unknown and the name is unique within the province."""
     df = long.copy()
     df["unit_code"] = df["unit_code"].where(df["unit_code"].notna() & (df["unit_code"] != ""), None)
+    df["unit_key"] = df["unit_name"].map(squash_unit_name)
     missing = df["unit_code"].isna() & (df["unit_name"] != "__PROVINCE__")
-    key = codes.set_index(["province_code", "level", "unit_name_norm"])["unit_code"]
-    for idx in df.index[missing]:
-        r = df.loc[idx]
-        k = (r["province_code"], r["level"], r["unit_name_norm"])
-        if k in key.index:
-            df.at[idx, "unit_code"] = key.loc[k]
-            continue
-        if r["level"] == "unknown":
-            cand = codes[(codes["province_code"] == r["province_code"]) & (codes["unit_name_norm"] == r["unit_name_norm"])]
-            if len(cand) == 1:
-                df.at[idx, "unit_code"] = cand["unit_code"].iloc[0]
+    by_level = codes.set_index(["province_code", "level", "unit_key"])["unit_code"]
+    by_level = by_level[~by_level.index.duplicated()]
+    uniq = codes.drop_duplicates(["province_code", "unit_key"], keep=False).set_index(["province_code", "unit_key"])["unit_code"]
+    # resolve each distinct (province, level, key) once, then map
+    cache = {}
+    for prov, lvl, k in set(map(tuple, df.loc[missing, ["province_code", "level", "unit_key"]].itertuples(index=False))):
+        code = None
+        if (prov, lvl, k) in by_level.index:
+            code = by_level.loc[(prov, lvl, k)]
+        elif (prov, k) in uniq.index:  # level unknown (or wrong) but the name is unique in the province
+            code = uniq.loc[(prov, k)]
+        cache[(prov, lvl, k)] = code
+    df.loc[missing, "unit_code"] = [cache[(p, l, k)] for p, l, k in
+                                    df.loc[missing, ["province_code", "level", "unit_key"]].itertuples(index=False)]
     df["matched"] = df["unit_code"].notna()
     return df
 
 
-def build_panel(long: pd.DataFrame, prefer: Optional[list] = None) -> pd.DataFrame:
+BAD_REFS = {
+    "bps:3300:1881",  # Jawa Tengah 2019-2021: identical values across years, shifted columns in the source
+}
+
+
+def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs: Optional[set] = None) -> pd.DataFrame:
     """unit x year (x semester) wide table with one column per religion, plus
     konghucu share. When several sources cover the same cell, `prefer` orders them
     (default: arcgis, pdf, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
     the Excel-exported static ones, and a labelled total beats a sum of kecamatan).
     semester is 0 when the source is annual."""
     prefer = prefer or ["arcgis", "pdf", "bpsvar", "bps", "bps_kabsum"]
-    df = long[long["unit_code"].notna() & long["count"].notna()].copy()
+    bad = BAD_REFS | set(exclude_refs or ())
+    df = long[long["unit_code"].notna() & long["count"].notna() & ~long["ref"].isin(bad)].copy()
     no_year = df["year"].isna()
     if no_year.any():
         refs = sorted(set(df.loc[no_year, "ref"].astype(str)))

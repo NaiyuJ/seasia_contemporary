@@ -492,3 +492,36 @@ def test_panel_total_filled_from_religions_when_missing():
     panel = harmonize.build_panel(long).set_index("unit_code")
     assert panel.loc["6171", "total"] == 583 and abs(panel.loc["6171", "konghucu_share"] - 3 / 583) < 1e-12
     assert panel.loc["6101", "total"] == 100 and bool(panel.loc["6171", "total_is_sum"]) and not bool(panel.loc["6101", "total_is_sum"])
+
+
+def test_block_levels_and_name_matching(tmp_path):
+    html = """<table><tr><th>Kabupaten/Kota</th><th>Islam</th><th>Konghucu</th></tr>
+    <tr><td>Kabupaten/ Regency</td><td></td><td></td></tr>
+    <tr><td>Magelang</td><td>100</td><td>1</td></tr><tr><td>07 Labuhanbatu</td><td>50</td><td>2</td></tr>
+    <tr><td>Kota/ Municipality</td><td></td><td></td></tr>
+    <tr><td>Magelang</td><td>30</td><td>3</td></tr><tr><td>2. Bulungan *)</td><td>10</td><td>4</td></tr>
+    <tr><td>Sumber : Sensus Penduduk 2010 (SP 2010), BPS</td><td>1</td><td>1</td></tr>
+    <tr><td>-</td><td>1</td><td>1</td></tr></table>"""
+    d = bps_api.parse_religion_html(html, "33", 2020, "x")
+    assert "Sumber : Sensus Penduduk 2010 (SP 2010), BPS" not in set(d["unit_name"]) and "-" not in set(d["unit_name"])
+    lv = d.drop_duplicates("unit_name").set_index("unit_name")["level"]
+    assert lv["Magelang"] == "kabupaten"  # first occurrence (drop_duplicates keeps first)
+    assert d[d["unit_name"] == "Magelang"]["level"].tolist().count("kota") == 2
+    codes = tmp_path / "codes.csv"
+    pd.DataFrame({"unit_code": ["3308", "3371", "3307", "6501"],
+                  "unit_name": ["Magelang", "Kota Magelang", "Labuhan Batu", "Bulungan"]}).to_csv(codes, index=False)
+    ct = harmonize.load_code_table(str(codes))
+    d["province_code"] = "33"
+    out = harmonize.attach_codes(d, ct)
+    k = out[out["religion"] == "konghucu"].set_index("count")["unit_code"]
+    assert k[1] == "3308" and k[3] == "3371"          # same name, split by block level
+    assert k[2] == "3307"                              # 'Labuhanbatu' == 'Labuhan Batu', code prefix stripped
+    assert k[4] == "6501"                              # '2. Bulungan *)' cleaned
+
+
+def test_build_panel_excludes_bad_refs():
+    long = pd.DataFrame([
+        dict(source="bps", province_code="33", unit_code="3301", unit_name="Cilacap", year=2020, semester=None, religion="konghucu", count=999, ref="bps:3300:1881"),
+        dict(source="bps", province_code="33", unit_code="3301", unit_name="Cilacap", year=2020, semester=None, religion="konghucu", count=5, ref="bps:3300:2249"),
+    ])
+    assert harmonize.build_panel(long).iloc[0]["konghucu"] == 5

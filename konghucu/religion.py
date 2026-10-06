@@ -82,13 +82,44 @@ def parse_count(x: object) -> Optional[float]:
 _UNIT_PREFIX = re.compile(r"^(kabupaten|kab\.?|kota adm\.?|kota administrasi|kota|kotamadya)\s+", re.I)
 
 
+UNIT_ALIASES = {  # table spelling -> BPS domain spelling (both normalised, spaces removed)
+    "pali": "penukalabablematangilir",
+    "pangkep": "pangkajenedankepulauan",
+    "pangkajenekepulauan": "pangkajenedankepulauan",
+    "tanjungjabungtimur": "tanjungjabungtimur",
+    "kepulauanseribu": "kepulauanseribu",
+    "jakartapusat": "jakartapusat",
+    "sawahlunto": "sawahlunto",
+    "pematangsiantar": "pematangsiantar",
+    "batam": "batam",
+    "dumai": "dumai",
+    "siak": "siak",
+}
+
+
 def norm_unit_name(name: object) -> str:
-    """'Kab. Deli Serdang' -> 'deli serdang'; 'KOTA MEDAN' -> 'medan'. Keeps 'kota ' when
-    needed to separate Kota X from Kabupaten X: callers compare on (level, name)."""
+    """'Kab. Deli Serdang' -> 'deli serdang'; 'KOTA MEDAN' -> 'medan'; '2. Bulungan *)' -> 'bulungan'.
+    Keeps 'kota ' when needed to separate Kota X from Kabupaten X: callers compare on (level, name)."""
     s = norm_label(name)
     s = re.sub(r"^\d+\s*", "", s)  # leading row numbers
     s = _UNIT_PREFIX.sub("", s)
+    s = re.sub(r"\s*[\*\)\(\]\[/]+\s*$", "", s)  # trailing footnote marks '*)'
+    s = re.sub(r"\s+(kab|kabupaten|kota|regency|municipality)$", "", s)
     return s.strip()
+
+
+def squash_unit_name(name: object) -> str:
+    """Space-free key for matching: 'labuhan batu' == 'labuhanbatu'; aliases applied."""
+    k = norm_unit_name(name).replace(" ", "")
+    return UNIT_ALIASES.get(k, k)
+
+
+def is_unit_name(name: object) -> bool:
+    """False for footnotes, sources, dashes and sentence-length titles that slipped into the name column."""
+    s = norm_label(name)
+    if not re.search(r"[a-z]", s) or len(s) > 45:
+        return False
+    return not re.search(r"sumber|source|catatan|note|keterangan|population by|penduduk .* menurut|jumlah penduduk", s)
 
 
 def unit_level(name: object) -> str:
