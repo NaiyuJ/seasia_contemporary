@@ -416,3 +416,30 @@ def test_rollup_kecamatan_sharing_the_kabupaten_name():
     r2 = bps_api.rollup_kabupaten_domain(d2, "3503", "Trenggalek")
     assert r2[(r2["level"] == "kabupaten") & (r2["religion"] == "islam")]["count"].item() == 300
     assert set(r2[r2["level"] == "kecamatan"]["unit_name"]) == {"Trenggalek", "Panggul"}
+
+
+def test_name_total_rejected_when_a_kecamatan_shares_the_name():
+    # no Jumlah row, no arithmetic match; 'Trenggalek' is a small kecamatan -> sum instead
+    html = """<table><tr><th>Kecamatan</th><th>Islam</th><th>Buddha</th></tr>
+    <tr><td>Trenggalek</td><td>100</td><td>10</td></tr><tr><td>Panggul</td><td>200</td><td>20</td></tr>
+    <tr><td>Munjungan</td><td>150</td><td>5</td></tr></table>"""
+    d = bps_api.parse_religion_html(html, "35", 2015, "x")
+    r = bps_api.rollup_kabupaten_domain(d, "3503", "Trenggalek")
+    kab = r[r["level"] == "kabupaten"]
+    assert kab[kab["religion"] == "islam"]["count"].item() == 450 and (kab["source"] == "bps_kabsum").all()
+    # but a dominant row named after the kabupaten is accepted
+    html2 = html.replace("<td>Trenggalek</td><td>100</td><td>10</td>", "<td>Trenggalek</td><td>900</td><td>90</td>")
+    d2 = bps_api.parse_religion_html(html2, "35", 2015, "y")
+    r2 = bps_api.rollup_kabupaten_domain(d2, "3503", "Trenggalek")
+    assert r2[(r2["level"] == "kabupaten") & (r2["religion"] == "islam")]["count"].item() == 900
+
+
+def test_catalogue_load_dedupes(tmp_path):
+    from konghucu.cli import _Checkpoint, STATIC_COLS
+    out = str(tmp_path / "cat.csv")
+    row = {"domain": "6101", "province_code": "61", "domain_name": "Sambas", "table_id": "1", "title": "t",
+           "subj": None, "updt_date": None, "excel": None, "about_religion": True, "by_unit": True, "is_percent": False,
+           "is_sub_kecamatan": False}
+    ck = _Checkpoint(out, resume=False, columns=STATIC_COLS)
+    ck("6101", [row]); ck("6101", [row])
+    assert len(ck.load()) == 1

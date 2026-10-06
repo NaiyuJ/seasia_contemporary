@@ -408,7 +408,7 @@ def view_data_all_years(session, domain: str, var_id: str | int, key: str, lang:
     return merged or {"data-availability": "not-available", "message": "no year returned data"}
 
 
-def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bps") -> pd.DataFrame:
+def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bpsvar") -> pd.DataFrame:
     """BPS dynamic-table JSON -> long rows. datacontent keys are the concatenation of
     vervar (region) + var + turvar (category) + tahun + turtahun ids, so we rebuild
     every combination and look it up instead of splitting the key."""
@@ -528,8 +528,17 @@ def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional
     if not is_total.any() and domain_name:
         dn = norm_unit_name(domain_name)
         nm = d["unit_name"].map(norm_unit_name)
-        is_total = (nm == dn) | nm.str.match(r"^(kabupaten|kota|kab)\s+" + re.escape(dn) + r"$") \
+        by_name = (nm == dn) | nm.str.match(r"^(kabupaten|kota|kab)\s+" + re.escape(dn) + r"$") \
             | nm.str.match(r"^" + re.escape(dn) + r"\s+(19|20)\d\d$")
+        # a kecamatan often carries the kabupaten's name: accept the name match only if that
+        # row is the largest and clearly dominates the second largest (a total must be)
+        if by_name.any():
+            big = d.dropna(subset=["count"])
+            rel = big.groupby("religion")["count"].sum().idxmax() if len(big) else None
+            per_unit = big[big["religion"] == rel].groupby("unit_name")["count"].sum().sort_values(ascending=False)
+            named = set(d.loc[by_name, "unit_name"])
+            if len(per_unit) >= 2 and per_unit.index[0] in named and per_unit.iloc[0] >= 1.5 * per_unit.iloc[1]:
+                is_total = by_name & (d["unit_name"] == per_unit.index[0])
     kec = d[~is_total].copy()
     kec["level"] = "kecamatan"
     kec["unit_code"] = None
@@ -559,3 +568,20 @@ def header_report(html: str) -> List[dict]:
                     "cells": [(c, canonical_religion(c)) for c in grid[h] if c],
                     "first_data_rows": [r[:9] for r in grid[h + 1:h + 4]]})
     return out
+
+
+def kabupaten_code_table(session, key: str, log=print) -> pd.DataFrame:
+    """unit_code, unit_name for every kabupaten/kota BPS domain (domain id = BPS code)."""
+    rows = []
+    for code, name in PROVINCES.items():
+        try:
+            doms = list_domains(session, key, code)
+        except RuntimeError as e:
+            log(f"  {code} {name}: {e}")
+            continue
+        for d in doms:
+            if is_kabupaten_domain(d["domain_id"]):
+                rows.append({"unit_code": d["domain_id"], "unit_name": d["domain_name"], "province_code": code})
+        log(f"  {code} {name}: {len(doms)} domains")
+        time.sleep(0.2)
+    return pd.DataFrame(rows, columns=["unit_code", "unit_name", "province_code"])

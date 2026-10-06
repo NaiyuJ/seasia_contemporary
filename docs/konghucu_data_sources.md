@@ -35,3 +35,9 @@
 `harmonize` 用 BPS 县代码表把名字对到 4 位代码，打印对不上的名字让你手工补，然后生成 unit × year × semester 面板。区划拆分（pemekaran）不在这里处理，拿到面板后用明确的 crosswalk 合并。
 
 实际运行只能在本地做：这个云容器的网络策略拦掉了 bps.go.id、data.go.id 和 kemendagri.go.id，代码只经过离线测试（`tests/test_konghucu.py`），第一次跑真实接口时留意 BPS 返回的 JSON 结构是否与 `bps_api.py` 的假设一致。
+
+## 已知的脏表
+
+- `bps:3300:1881`（中爪哇 2019 到 2021 三年表）：原始 HTML 里 Cilacap 等县的穆斯林人数三年完全相同，天主教 2021 列是 16 这种明显错位的值。BPS 自己的表就是这样。`harmonize.build_panel` 的来源优先级把动态表（bpsvar）和单年静态表排在前面，这张表只在没有别的来源时才会被用到。
+- 东爪哇、日惹大多数县级表没有孔教列，孔教并在 Lainnya 里。这些县只能把 Lainnya 当上界。
+- 县级表的总计行标签不统一（Jumlah、县名、年份、或没有），识别顺序是：Jumlah 标签，等于其他行之和，县名且明显最大，最后加总 kecamatan（source 记为 bps_kabsum）。

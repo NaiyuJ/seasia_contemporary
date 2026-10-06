@@ -39,8 +39,11 @@ class _Checkpoint:
             f.write(f"{domain}\n")
 
     def load(self):
-        return pd.read_csv(self.out, dtype=str) if self.out.exists() and self.out.stat().st_size > 0 \
-            else pd.DataFrame(columns=self.columns)
+        if not (self.out.exists() and self.out.stat().st_size > 0):
+            return pd.DataFrame(columns=self.columns)
+        df = pd.read_csv(self.out, dtype=str)
+        key = [c for c in ("domain", "table_id", "var_id") if c in df.columns]
+        return df.drop_duplicates(key).reset_index(drop=True)
 
 
 STATIC_COLS = ["domain", "province_code", "domain_name", "table_id", "title", "subj", "updt_date", "excel",
@@ -94,6 +97,7 @@ def cmd_bps_fetch(a):
         if not frames:
             return None
         df = pd.concat(frames, ignore_index=True)
+        df = df.drop_duplicates([c for c in ("domain", "table_id", "var_id") if c in df.columns])
         if "is_sub_kecamatan" not in df.columns:  # catalogues made before this flag existed
             df["is_sub_kecamatan"] = df["title"].map(lambda t: bps_api.classify_title(t)["is_sub_kecamatan"])
         for c in ("about_religion", "by_unit", "is_percent", "is_sub_kecamatan"):
@@ -132,6 +136,13 @@ def cmd_bps_fetch(a):
               .fillna(0).astype(int).to_string())
     else:
         print("no konghucu rows found; inspect data/raw/bps and the column headers")
+
+
+def cmd_bps_codes(a):
+    """Write the BPS kabupaten/kota code table from the API's domain list."""
+    df = bps_api.kabupaten_code_table(requests.Session(), bps_api.get_key())
+    df.to_csv(_out(a.out), index=False)
+    print(f"{len(df)} kabupaten/kota codes -> {a.out}")
 
 
 def cmd_bps_probe(a):
@@ -253,6 +264,10 @@ def build_parser():
     f.add_argument("--raw-dir", default="data/raw/bps")
     f.add_argument("--out", default="data/konghucu/bps_long.csv")
     f.set_defaults(func=cmd_bps_fetch)
+
+    cd = sp.add_parser("bps-codes", help="write unit_code,unit_name for all kabupaten/kota from the BPS domain list")
+    cd.add_argument("--out", default="data/raw/bps_kabupaten_codes.csv")
+    cd.set_defaults(func=cmd_bps_codes)
 
     pr = sp.add_parser("bps-probe", help="print raw API responses for one static table and one variable")
     pr.add_argument("--domain", default="1200"); pr.add_argument("--table-id", default="2793")

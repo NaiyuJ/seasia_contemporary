@@ -48,8 +48,10 @@ def attach_codes(long: pd.DataFrame, codes: pd.DataFrame) -> pd.DataFrame:
 def build_panel(long: pd.DataFrame, prefer: Optional[list] = None) -> pd.DataFrame:
     """unit x year (x semester) wide table with one column per religion, plus
     konghucu share. When several sources cover the same cell, `prefer` orders them
-    (default: arcgis, pdf, bps). semester is 0 when the source is annual."""
-    prefer = prefer or ["arcgis", "pdf", "bps"]
+    (default: arcgis, pdf, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
+    the Excel-exported static ones, and a labelled total beats a sum of kecamatan).
+    semester is 0 when the source is annual."""
+    prefer = prefer or ["arcgis", "pdf", "bpsvar", "bps", "bps_kabsum"]
     df = long[long["unit_code"].notna() & long["count"].notna()].copy()
     # semester 0 = annual / unspecified (BPS yearbook tables); pandas drops NaN index keys
     df["semester"] = df["semester"].fillna(0).astype(int)
