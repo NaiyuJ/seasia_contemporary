@@ -162,6 +162,20 @@ def cmd_bps_inspect(a):
     html = raw.read_text(encoding="utf-8")
     for rep in bps_api.header_report(html):
         print(json.dumps(rep, ensure_ascii=False, indent=1))
+    if a.raw_rows:
+        import re
+        from konghucu.htmltable import unescape_if_needed
+        trs = re.findall(r"<tr[^>]*>.*?</tr>", unescape_if_needed(html), flags=re.S | re.I)
+        ws = re.compile(r"\s+")
+        tags = re.compile(r"<[^>]+>")
+        for i, tr in enumerate(trs[:a.raw_rows]):
+            cells = re.findall(r"<t[dh]([^>]*)>(.*?)</t[dh]>", tr, flags=re.S | re.I)
+            parts = []
+            for attrs, txt in cells:
+                attrs_s = ws.sub(" ", attrs).strip()[:40]
+                txt_s = ws.sub(" ", tags.sub(" ", txt)).strip()[:25]
+                parts.append(f"[{attrs_s}] {txt_s}")
+            print(f"-- raw row {i}: " + " | ".join(parts))
     d = bps_api.parse_religion_html(html, a.domain[:2], None, f"bps:{a.domain}:{a.table_id}")
     d = bps_api.rollup_kabupaten_domain(d, a.domain, a.domain)
     pd.set_option("display.width", 200)
@@ -249,6 +263,7 @@ def build_parser():
     ins = sp.add_parser("bps-inspect", help="show header mapping and parsed rows of one cached static table")
     ins.add_argument("--domain", required=True); ins.add_argument("--table-id", required=True)
     ins.add_argument("--raw-dir", default="data/raw/bps")
+    ins.add_argument("--raw-rows", type=int, default=0, help="also print the first N raw <tr> rows with cell attributes")
     ins.set_defaults(func=cmd_bps_inspect)
 
     d = sp.add_parser("arcgis-discover", help="scan GIS Dukcapil for layers with religion fields")

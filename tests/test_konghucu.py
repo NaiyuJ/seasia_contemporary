@@ -365,3 +365,34 @@ def test_view_data_all_years_merges_two_year_chunks():
     assert [t["val"] for t in js["tahun"]] == [121, 122, 123] and len(js["datacontent"]) == 3
     df = bps_api.parse_dynamic(js, "61", "x")
     assert sorted(df["year"]) == [2021, 2022, 2023]
+
+
+def test_rollup_detects_unlabelled_total_row():
+    # total row labelled with the kabupaten name, not 'Jumlah': must not be double counted
+    html = """<table><tr><th>Kecamatan</th><th>Islam</th><th>Konghucu</th></tr>
+    <tr><td>Pemangkat</td><td>100</td><td>5</td></tr><tr><td>Tebas</td><td>200</td><td>7</td></tr>
+    <tr><td>Sambas</td><td>300</td><td>12</td></tr></table>"""
+    d = bps_api.parse_religion_html(html, "61", 2022, "x")
+    r = bps_api.rollup_kabupaten_domain(d, "6101", "Kab. Sambas")
+    kab = r[r["level"] == "kabupaten"]
+    assert kab[kab["religion"] == "islam"]["count"].item() == 300
+    assert kab[kab["religion"] == "konghucu"]["count"].item() == 12
+    assert len(r[r["level"] == "kecamatan"]) == 4
+
+    # total row labelled with the year only: found by arithmetic
+    html2 = html.replace("<td>Sambas</td>", "<td>Trenggalek 2019</td>")
+    d2 = bps_api.parse_religion_html(html2, "35", 2019, "y")
+    r2 = bps_api.rollup_kabupaten_domain(d2, "3503", "Kabupaten Trenggalek")
+    assert r2[(r2["level"] == "kabupaten") & (r2["religion"] == "islam")]["count"].item() == 300
+
+
+def test_years_row_beside_rowspan_label_is_not_data():
+    html = """<table>
+    <tr><td rowspan=2>Kabupaten/ Kota Regency/ Municipality</td><td colspan=2>Islam</td><td colspan=2>Budha</td></tr>
+    <tr><td>2019</td><td>2020</td><td>2019</td><td>2020</td></tr>
+    <tr><td>Kabupaten/ Regency</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>Cilacap</td><td>1 793 687</td><td>1 800 000</td><td>600</td><td>1 463</td></tr></table>"""
+    df = bps_api.parse_religion_html(html, "33", None, "z")
+    assert set(df["unit_name"]) == {"Cilacap"}
+    c = df.set_index(["religion", "year"])["count"]
+    assert c[("islam", 2019)] == 1793687 and c[("islam", 2020)] == 1800000 and c[("buddha", 2020)] == 1463

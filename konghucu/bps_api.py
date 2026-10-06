@@ -220,10 +220,12 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             continue
         data_start = h + 1
         if header2 is not None:
-            nonempty = [c for c in header2 if c and c.strip()]
-            only_years = bool(nonempty) and all(re.fullmatch(r"\d{4}(/\d{2,4})?", c.strip()) for c in nonempty)
-            if only_years or not any(_is_number_like(c) for c in header2):
-                data_start = h + 2  # header2 was a header row (years or sub-labels), not data
+            nonempty = [c.strip() for c in header2 if c and c.strip()]
+            is_year = lambda c: bool(re.fullmatch(r"(19|20)\d{2}(/\d{2,4})?", c))
+            years_or_text = bool(nonempty) and any(is_year(c) for c in nonempty) and \
+                all(is_year(c) or not _is_number_like(c) for c in nonempty)
+            if years_or_text or not any(_is_number_like(c) for c in header2):
+                data_start = h + 2  # header2 was a header row (years, possibly beside rowspan labels), not data
         for row in grid[data_start:]:
             name = next((c.strip() for c in row if c and c.strip() and not _is_number_like(c)), None)
             if not name:
@@ -235,6 +237,9 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             vals = [(j, rel, yr, parse_count(row[j]) if j < len(row) else None) for j, rel, yr in rel_cols]
             if all(v is None for *_, v in vals):
                 continue
+            if all(v is None or (1990 <= v <= 2035 and float(v).is_integer()) for *_, v in vals) \
+                    and sum(v is not None for *_, v in vals) >= 2:
+                continue  # a row of years
             prov_nm = norm_label(PROVINCES.get(province_code, "")).replace(" ", "")
             is_prov_total = nm.replace(" ", "") == prov_nm or nm.startswith("provinsi") \
                 or nm.startswith("jumlah") or nm.startswith("total")
@@ -486,6 +491,27 @@ def is_kabupaten_domain(domain: str) -> bool:
     return len(str(domain)) == 4 and not str(domain).endswith("00")
 
 
+def _rows_equal_to_sum_of_others(d: pd.DataFrame, tol: float = 0.01) -> pd.Series:
+    """Mark unit rows whose count equals the sum of every other unit's count (within
+    `tol`), checked on the religion with the largest total per year: BPS tables often
+    label the total row with the kabupaten name or the year rather than 'Jumlah'."""
+    flag = pd.Series(False, index=d.index)
+    for yr, g in d.groupby("year", dropna=False):
+        g = g.dropna(subset=["count"])
+        if g.empty:
+            continue
+        rel = g.groupby("religion")["count"].sum().idxmax()
+        gr = g[g["religion"] == rel]
+        if gr["unit_name"].nunique() < 3:
+            continue
+        per_unit = gr.groupby("unit_name")["count"].sum()
+        s = per_unit.sum()
+        for u, v in per_unit.items():
+            if v > 0 and abs(v - (s - v)) <= tol * s:
+                flag |= (d["unit_name"] == u) & ((d["year"] == yr) | (d["year"].isna() & pd.isna(yr)))
+    return flag
+
+
 def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional[str]) -> pd.DataFrame:
     """For a table served by a kabupaten/kota BPS domain the rows are kecamatan (or
     kelurahan). Return the kecamatan rows tagged level='kecamatan' plus one row per
@@ -495,6 +521,12 @@ def rollup_kabupaten_domain(df: pd.DataFrame, domain: str, domain_name: Optional
         return df
     d = df.copy()
     is_total = d["unit_name"] == "__PROVINCE__"
+    if domain_name:
+        dn = norm_unit_name(domain_name)
+        nm = d["unit_name"].map(norm_unit_name)
+        is_total |= (nm == dn) | nm.str.startswith(dn + " ") | nm.str.match(r"^(kabupaten|kota|kab)\b.*" + re.escape(dn))
+    if not is_total.any():
+        is_total |= _rows_equal_to_sum_of_others(d)
     kec = d[~is_total].copy()
     kec["level"] = "kecamatan"
     kec["unit_code"] = None
