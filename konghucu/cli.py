@@ -245,6 +245,8 @@ def cmd_bps_publications(a):
     df = pd.DataFrame(rows, columns=["domain", "pub_id", "title", "rl_date", "size", "pdf"])
     if a.years:
         df = df[df["title"].astype(str).str.contains("|".join(a.years), regex=True)]
+    if a.title_regex:
+        df = df[df["title"].astype(str).str.contains(a.title_regex, regex=True, case=False)]
     df.to_csv(_out(a.out), index=False)
     pd.set_option("display.max_colwidth", 70)
     pd.set_option("display.width", 200)
@@ -444,6 +446,8 @@ def build_parser():
     pb.add_argument("--domains", nargs="+", required=True, help="BPS domain ids, e.g. 6101 6102 6172")
     pb.add_argument("--keyword", default="dalam angka")
     pb.add_argument("--years", nargs="*", help="keep titles containing any of these years")
+    pb.add_argument("--title-regex", default=r"^(Kabupaten|Kota)\b",
+                    help="keep titles matching this (default: the kabupaten/kota books, not the per-kecamatan ones); '' for all")
     pb.add_argument("--download", default=None, help="directory to download the PDFs into, e.g. data/raw/pubs")
     pb.add_argument("--out", default="data/konghucu/bps_publications.csv")
     pb.set_defaults(func=cmd_bps_publications)
