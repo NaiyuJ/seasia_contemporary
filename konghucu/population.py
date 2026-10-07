@@ -19,16 +19,20 @@ import pandas as pd
 from . import bps_api
 from .religion import PROVINCES, norm_label
 
-NOT_POP_RE = (r"agama|umur|usia|kelompok|miskin|kerja|kegiatan|angkatan|laju|kepadatan|rasio|persen|rumah tangga|generasi|"
-              r"kecamatan|desa|kelurahan|pendidikan|kawin|status|lahir|migrasi|cacat|disabilitas|wna|asing|perkotaan|perdesaan|"
-              r"pedesaan|penerima|peserta|per km|sex|pertumbuhan|konsumsi|internet|telepon|pengeluaran|pangan|pengangguran|"
-              r"bekerja|jam|lapangan|triwulan|bukan")
+NOT_POP_WORDS = ["agama", "umur", "usia", "kelompok", "miskin", "kerja", "bekerja", "kegiatan", "angkatan", "laju",
+                 "kepadatan", "rasio", "persen", "persentase", "rumah tangga", "generasi", "kecamatan", "desa", "kelurahan",
+                 "pendidikan", "kawin", "status", "lahir", "migrasi", "cacat", "disabilitas", "wna", "asing", "perkotaan",
+                 "perdesaan", "pedesaan", "penerima", "peserta", "per km", "sex", "pertumbuhan", "konsumsi", "internet",
+                 "telepon", "pengeluaran", "pangan", "pengangguran", "jam", "lapangan", "triwulan", "bukan", "angka",
+                 "harapan", "sekolah", "menurut provinsi", "di indonesia", "wilayah", "suku", "anak", "lansia", "nik"]
+NOT_POP_RE = "|".join(r"\b" + re.escape(w) + r"\b" for w in NOT_POP_WORDS)
 # words a plain population-by-kabupaten title may consist of, besides a province name
 POP_WORDS = {"jumlah", "proyeksi", "penduduk", "menurut", "kabupaten", "kota", "kabupaten/kota", "kab", "kab/kota", "kabupeten",
              "dan", "jenis", "kelamin", "provinsi", "prov", "di", "hasil", "sensus", "survei", "antar", "supas", "sp",
              "jiwa", "ribu", "orang", "laki-laki", "laki", "perempuan", "l+p", "laki-laki+perempuan", "laki+perempuan", "termasuk", "per",
-             "tahun", "lfsp", "registrasi", "total", "seluruh", "wilayah", "indonesia", "menurutkabupaten"}
-PROVINCE_WORDS = {w for name in PROVINCES.values() for w in norm_label(name).split()} | {"d.i.", "daerah", "istimewa", "dki"}
+             "tahun", "lfsp", "registrasi", "total", "seluruh", "menurutkabupaten"}
+PROVINCE_WORDS = {w for name in PROVINCES.values() for w in norm_label(name).split()} | {"d", "i", "daerah", "istimewa", "dki"}
+PROVINCE_KEYS = {norm_label(n).replace(" ", ""): c for c, n in PROVINCES.items()}
 TOTAL_LABEL_RE = r"^(jumlah|total|laki-laki \+ perempuan|l\s*\+\s*p|laki-laki dan perempuan)( \(.*\))?$"
 
 
@@ -37,12 +41,12 @@ def classify_population_title(title: object) -> dict:
     through its total; possibly a projection or census result), false for anything
     about a subgroup (age, labour, poverty, urban) or a rate."""
     t = norm_label(title).strip()
-    t = re.sub(r"\[[^\]]*\]", " ", t)  # '[Proyeksi SP2010]' tags
+    t = re.sub(r"\[[^\]]*\]", " ", t).strip()  # '[Proyeksi SP2010]' tags
     if re.search(NOT_POP_RE, t) or "penduduk" not in t:
         return {"about_population": False}
-    if not re.match(r"^(proyeksi |jumlah |total )?penduduk\b", t):
+    if not re.match(r"^(proyeksi )?(jumlah |total )?penduduk\b", t):
         return {"about_population": False}
-    words = re.sub(r"[(),.;:*-]+", " ", t).split()
+    words = re.sub(r"[(),.;:*+-]+", " ", t).split()
     extra = [w for w in words if w not in POP_WORDS and w not in PROVINCE_WORDS and not re.fullmatch(r"(19|20)\d{2}(/\d+)?", w)
              and not re.fullmatch(r"(sp|supas|lfsp)\d{4}", w)]
     if extra:
@@ -122,6 +126,10 @@ def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Option
                     raw.write_text(json.dumps(js, ensure_ascii=False), encoding="utf-8")
                 time.sleep(sleep_s)
             d = parse_population(js, str(rec.province_code), ref)
+            # a row named after another province is a province total in a national table,
+            # not a kabupaten ('Bengkulu' in a Sumatera Selatan table is not Kota Bengkulu)
+            other_prov = d["unit_name"].map(lambda n: PROVINCE_KEYS.get(norm_label(str(n)).replace(" ", "")))
+            d = d[other_prov.isna() | (other_prov == str(rec.province_code))]
             if d.empty:
                 log(f"  [{i}/{len(catalogue)}] {ref} EMPTY (no data, or split by category without a 'Jumlah')  "
                     f"{str(rec.title)[:50]}")

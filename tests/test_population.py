@@ -10,6 +10,11 @@ def test_title_classifier():
     no = ["Jumlah Penduduk Menurut Kabupaten/Kota (Laki-Laki)", "Jumlah Penduduk Miskin", "Jumlah Penduduk Menurut Agama",
           "Penduduk Menurut Kabupaten/Kota dan Jenis Kegiatan", "Jumlah Penduduk Hasil Sensus Penduduk 2020 menurut Generasi dan Kabupaten/Kota",
           "Jumlah Penduduk Kabupaten Bogor", "Laju Pertumbuhan Penduduk", "Kepadatan Penduduk", "Jumlah Penduduk Menurut Kecamatan"]
+    yes += ["[SK.Kp.002] [Proyeksi SP2010] Jumlah Penduduk Hasil Proyeksi Sensus Penduduk 2010 menurut Kabupaten/Kota dan Jenis Kelamin",
+            "Proyeksi Jumlah Penduduk menurut Kabupaten/Kota di D.I. Yogyakarta ", "Penduduk Menurut Kabupaten/Kota di Provinsi Jambi",
+            "Proyeksi Penduduk Menurut Kabupaten/Kota (Perempuan+Laki-Laki)"]
+    no += ["Jumlah Penduduk menurut Provinsi", "Jumlah Penduduk Menurut Provinsi di Indonesia", "Proyeksi Penduduk Menurut Jenis Wilayah",
+           "Penduduk Kabupaten Kerinci", "Penduduk Usia 15 Tahun Ke Atas yang Bekerja Menurut Jam Kerja"]
     assert all(population.classify_population_title(t)["about_population"] for t in yes)
     assert not any(population.classify_population_title(t)["about_population"] for t in no)
 
@@ -35,6 +40,17 @@ def test_fetch_population_scales_units(tmp_path):
     assert sib["population"] == 90100 and sib["unit_code"] is None or sib["unit_code"] in (None, "nan") or pd.isna(sib["unit_code"])
     rec = population.reconcile_population(long.assign(unit_code=long["unit_name"].map({"Sibolga": "1271", "Medan": "1275"})))
     assert len(rec) == 4 and rec[(rec.unit_code == "1275") & (rec.year == 2020)]["population"].iloc[0] == 2435300
+
+
+def test_fetch_drops_rows_named_after_another_province(tmp_path):
+    import json
+    js = _js("Jiwa")
+    js["vervar"] = [{"val": 1600, "label": "Sumatera Selatan"}, {"val": 1700, "label": "Bengkulu"}, {"val": 1671, "label": "Palembang"}]
+    js["datacontent"] = {"160010001200": 8500000, "170010001200": 2000000, "167110001200": 1700000}
+    (tmp_path / "bps_var_1600_573.json").write_text(json.dumps(js))
+    cat = pd.DataFrame([{"domain": "1600", "province_code": "16", "var_id": "573", "unit": "Jiwa", "title": "x"}])
+    long = population.fetch_population(None, cat, "key", raw_dir=str(tmp_path), log=lambda *a: None)
+    assert list(long["unit_name"]) == ["Palembang"]
 
 
 def test_reconcile_median_and_spread():

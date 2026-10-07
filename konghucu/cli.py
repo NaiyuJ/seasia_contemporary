@@ -272,6 +272,13 @@ def cmd_bps_population(a):
     print(f"{len(pop)} unit-years, {pop['unit_code'].nunique()} units, years {pop['year'].min()}..{pop['year'].max()} -> {a.out}")
     print("units per year:")
     print(pop.groupby("year")["unit_code"].nunique().to_string())
+    have = pop.groupby(pop["unit_code"].str[:2])["unit_code"].nunique()
+    want = codes.groupby("province_code")["unit_code"].nunique()
+    cov = pd.DataFrame({"units_with_population": have, "units_in_code_table": want}).fillna(0).astype(int)
+    cov["name"] = cov.index.map(bps_api.PROVINCES)
+    short = cov[cov["units_with_population"] < cov["units_in_code_table"]]
+    print(f"provinces where some kabupaten have no population series ({len(short)}):")
+    print(short.to_string())
     dis = pop[pop["spread"] > 1.05]
     if len(dis):
         print(f"{len(dis)} unit-years where BPS series disagree by >5% (median used):")
