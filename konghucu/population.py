@@ -90,19 +90,36 @@ def _scale(unit: object, title: object = "") -> float:
     return 1.0
 
 
-def parse_population(js: dict, province_code: str, ref: str) -> pd.DataFrame:
+SEX_LABEL_RE = {"male": r"^laki", "female": r"^perempuan|^wanita"}
+POP_LONG_COLS = ["source", "province_code", "unit_code", "unit_name", "level", "unit_name_norm", "year", "count", "ref"]
+
+
+def parse_population(js: dict, province_code: str, ref: str, log=None) -> pd.DataFrame:
     """Dynamic-table JSON -> one row per unit x year. A variable with a single category
-    is taken as is; one split by sex (or anything else) is used only through its
-    'Jumlah'/'Total' category, so parts are never mistaken for the whole."""
+    is taken as is. One split by sex is used through its 'Jumlah'/'Total' category, or,
+    when the table has only the two sexes, by adding them. Any other split is skipped."""
     from .bps_api import parse_dynamic
     turvar = [x for x in (js.get("turvar") or []) if isinstance(x, dict)]
     if len(turvar) > 1:
-        tot = [tv for tv in turvar if re.search(TOTAL_LABEL_RE, norm_label(tv.get("label", "")))]
-        if not tot:
-            return pd.DataFrame()
-        js = dict(js, turvar=[tot[0]])
+        labels = {str(tv.get("val")): norm_label(tv.get("label", "")) for tv in turvar}
+        tot = [tv for tv in turvar if re.search(TOTAL_LABEL_RE, labels[str(tv.get("val"))])]
+        if tot:
+            js = dict(js, turvar=[tot[0]])
+        else:
+            sexes = [tv for tv in turvar if any(re.search(pat, labels[str(tv.get("val"))]) for pat in SEX_LABEL_RE.values())]
+            if len(sexes) != 2 or len(turvar) != 2:
+                if log:
+                    log(f"  {ref}: split by {sorted(labels.values())[:6]} without a total; skipped")
+                return pd.DataFrame(columns=POP_LONG_COLS)
+            parts = [parse_dynamic(dict(js, turvar=[tv]), province_code, ref, source="bpspop") for tv in sexes]
+            parts = [q[(q["religion"] == "total") & (q["unit_name"] != "__PROVINCE__") & q["count"].notna()] for q in parts]
+            key = ["unit_name", "year"]
+            m = parts[0].merge(parts[1][key + ["count"]], on=key, how="inner", suffixes=("", "_f"))
+            m["count"] = m["count"] + m["count_f"]
+            return m[POP_LONG_COLS] if len(m) else pd.DataFrame(columns=POP_LONG_COLS)
     d = parse_dynamic(js, province_code, ref, source="bpspop")
-    return d[(d["religion"] == "total") & (d["unit_name"] != "__PROVINCE__") & d["count"].notna()]
+    d = d[(d["religion"] == "total") & (d["unit_name"] != "__PROVINCE__") & d["count"].notna()]
+    return d[POP_LONG_COLS] if len(d) else pd.DataFrame(columns=POP_LONG_COLS)
 
 
 def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Optional[str] = None,
@@ -125,7 +142,7 @@ def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Option
                     raw.parent.mkdir(parents=True, exist_ok=True)
                     raw.write_text(json.dumps(js, ensure_ascii=False), encoding="utf-8")
                 time.sleep(sleep_s)
-            d = parse_population(js, str(rec.province_code), ref)
+            d = parse_population(js, str(rec.province_code), ref, log=log)
             # a row named after another province is a province total in a national table,
             # not a kabupaten ('Bengkulu' in a Sumatera Selatan table is not Kota Bengkulu)
             other_prov = d["unit_name"].map(lambda n: PROVINCE_KEYS.get(norm_label(str(n)).replace(" ", "")))
@@ -167,6 +184,12 @@ def reconcile_population(long: pd.DataFrame) -> pd.DataFrame:
     d = d[d["population"].between(PLAUSIBLE_MIN, PLAUSIBLE_MAX)]
     cover = d.groupby("ref").size().rename("cover")
     d = d.merge(cover, left_on="ref", right_index=True)
+    # a value that disagrees with every other series for that unit-year by >1.5x while
+    # those agree is a typo in that series (Garut 2013 is 17,201 in one table, 1.72M in the rest)
+    med = d.groupby(["unit_code", "year"])["population"].transform("median")
+    n = d.groupby(["unit_code", "year"])["population"].transform("size")
+    off = (n >= 2) & ~(d["population"] / med).between(1 / 1.5, 1.5)
+    d = d[~off]
     d = d.sort_values(["unit_code", "year", "cover", "ref"], ascending=[True, True, False, True])
     best = d.drop_duplicates(["unit_code", "year"], keep="first")[["unit_code", "year", "population", "ref"]]
     g = d.groupby(["unit_code", "year"])["population"]

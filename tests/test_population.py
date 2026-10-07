@@ -76,4 +76,21 @@ def test_parse_population_uses_total_category_of_sex_split_variable():
     d = population.parse_population(js, "12", "r")
     assert len(d) == 1 and d.iloc[0]["count"] == 90000 and d.iloc[0]["unit_name"] == "Sibolga"
     js["turvar"] = js["turvar"][:2]
-    assert population.parse_population(js, "12", "r").empty  # male and female only: not used
+    assert population.parse_population(js, "12", "r").iloc[0]["count"] == 90000  # male and female only: added up
+
+
+def test_parse_population_adds_male_and_female_when_no_total():
+    js = _js("Jiwa")
+    js["turvar"] = [{"val": 1, "label": "Laki-laki"}, {"val": 2, "label": "Perempuan"}]
+    js["datacontent"] = {"127110011200": 44000, "127110021200": 46000, "127510011200": 1200000, "127510021200": 1250000}
+    d = population.parse_population(js, "12", "r").set_index("unit_name")
+    assert d.loc["Sibolga", "count"] == 90000 and d.loc["Medan", "count"] == 2450000
+    js["turvar"] = [{"val": 1, "label": "Perkotaan"}, {"val": 2, "label": "Perdesaan"}]
+    assert population.parse_population(js, "12", "r").empty  # urban/rural split without a total: skipped
+
+
+def test_reconcile_discards_a_series_value_the_others_contradict():
+    long = pd.DataFrame({"unit_code": ["3206"] * 3, "year": [2013] * 3, "population": [17201, 1720123, 1725000],
+                         "ref": ["a", "b", "c"]})
+    rec = population.reconcile_population(long)
+    assert rec.iloc[0]["population"] == 1720123 and rec.iloc[0]["n_refs"] == 2

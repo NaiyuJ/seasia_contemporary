@@ -680,7 +680,7 @@ def test_cell_quality_rules():
 
 def test_population_anchor_and_outliers():
     big = {"islam": 90000, "kristen": 8000, "katolik": 1500, "buddha": 200, "konghucu": 50}
-    half = {k: v / 2 for k, v in big.items()}
+    half = {k: v * 0.6 for k, v in big.items()}
     long = _long([("1275", 2020, "a", big, None), ("1275", 2021, "b", half, None), ("1275", 2022, "c", big, None),
                   ("7401", 2022, "d", big, None)])
     pop = pd.DataFrame({"unit_code": ["1275", "1275", "1275", "7401"], "year": [2020, 2021, 2022, 2022],
@@ -688,7 +688,7 @@ def test_population_anchor_and_outliers():
     panel = harmonize.build_panel(long, population=pop)
     assert panel["population"].notna().all()
     r = panel[(panel.unit_code == "1275") & (panel.year == 2021)].iloc[0]
-    assert abs(r["konghucu_share_pop"] - 25 / 100000) < 1e-9 and abs(r["total_to_pop"] - 0.49875) < 1e-6
+    assert abs(r["konghucu_share_pop"] - 30 / 100000) < 1e-9 and abs(r["total_to_pop"] - 0.5985) < 1e-6
     outl = harmonize.total_outliers(panel)
     assert list(zip(outl["unit_code"], outl["year"], outl["anchor_kind"])) == [("1275", 2021, "population")]
     # without a population file the unit's median is the anchor, and single-year units are skipped
@@ -710,11 +710,11 @@ def test_shipped_drop_rules_parse_and_each_sets_a_field():
 def test_sub_kabupaten_table_dropped_against_population():
     big = {"islam": 90000, "kristen": 8000, "katolik": 1500}
     small = {"islam": 20000, "kristen": 100, "katolik": 10}
-    half = {"islam": 45000, "kristen": 4000, "katolik": 750}
-    huge = {k: v * 12 for k, v in big.items()}
+    half = {"islam": 55000, "kristen": 4000, "katolik": 750}
+    huge = {k: v * 2 for k, v in big.items()}
     long = _long([("3517", 2016, "bps:3517:3065", small, None), ("3517", 2018, "bps:3517:3942", big, None),
                   ("3517", 2019, "bps:3500:10", half, None), ("3517", 2020, "bpsvar:3517:7", huge, None)])
     pop = pd.DataFrame({"unit_code": ["3517"] * 4, "year": [2016, 2018, 2019, 2020], "population": [100000] * 4})
     panel = harmonize.build_panel(long, population=pop)
-    # 2016: sub-kecamatan table; 2020: a province row rolled up as the unit (>2x); 2019 at 0.5x is kept
+    # 2016: sub-kecamatan table; 2020: twice the population (Kemenag or a province row); 2019 at 0.6x is kept
     assert list(panel["year"]) == [2018, 2019]

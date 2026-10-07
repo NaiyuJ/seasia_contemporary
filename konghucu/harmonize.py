@@ -216,11 +216,11 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
             print(f"build_panel: dropping {int(sub.sum())} cells from kabupaten-domain tables whose total is <30% "
                   f"of the population (sub-kabupaten tables): {sorted(set(wide.loc[sub, 'ref']))[:8]}")
             wide = wide[~sub].copy()
-        # no count of residents is twice the population or under a third of it: a province
-        # row rolled up as the kota (Tangerang Selatan 10.6M), or a partial count
-        bad = wide["total_to_pop"].notna() & ((wide["total_to_pop"] > 2) | (wide["total_to_pop"] < 0.3))
+        # a count of residents is not 1.5x the population (Kemenag adherent counts that
+        # exceed it, a province row rolled up as the kota) nor under half of it (partial counts)
+        bad = wide["total_to_pop"].notna() & ((wide["total_to_pop"] > 1.5) | (wide["total_to_pop"] < 0.5))
         if bad.any():
-            print(f"build_panel: dropping {int(bad.sum())} cells whose total is >2x or <0.3x the official population: "
+            print(f"build_panel: dropping {int(bad.sum())} cells whose total is >1.5x or <0.5x the official population: "
                   f"{sorted(set(wide.loc[bad, 'ref']))[:8]}")
             wide = wide[~bad].copy()
         if "konghucu" in wide.columns:

@@ -88,6 +88,10 @@ UNIT_ALIASES = {  # table spelling -> BPS domain spelling (both normalised, spac
     "labuanbatuselatan": "labuhanbatuselatan",
     "labuanbatu": "labuhanbatu",
     "kepseribu": "kepulauanseribu",
+    "kepulauantanimbar": "malukutenggarabarat",  # renamed 2019; the BPS code table keeps the old name
+    "pasir": "paser",
+    "sidrap": "sidenrengrappang",
+    "sinderengrappang": "sidenrengrappang",
     "kepulauansitaro": "siautagulandangbiaro",
     "sitaro": "siautagulandangbiaro",
     "kepulauanyapen": "kepulauanyapen",
