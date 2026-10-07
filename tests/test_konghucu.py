@@ -703,3 +703,13 @@ def test_shipped_drop_rules_parse_and_each_sets_a_field():
     for r in rules.itertuples(index=False):
         assert (r.unit_code is not None and not pd.isna(r.unit_code)) or not pd.isna(r.year) \
             or (r.ref is not None and not pd.isna(r.ref))
+
+
+def test_sub_kabupaten_table_dropped_against_population():
+    big = {"islam": 90000, "kristen": 8000, "katolik": 1500}
+    small = {"islam": 20000, "kristen": 100, "katolik": 10}
+    long = _long([("3517", 2016, "bps:3517:3065", small, None), ("3517", 2018, "bps:3517:3942", big, None),
+                  ("3517", 2019, "bps:3500:10", small, None)])
+    pop = pd.DataFrame({"unit_code": ["3517"] * 3, "year": [2016, 2018, 2019], "population": [100000] * 3})
+    panel = harmonize.build_panel(long, population=pop)
+    assert list(panel["year"]) == [2018, 2019]  # the province-domain table is kept whatever its ratio

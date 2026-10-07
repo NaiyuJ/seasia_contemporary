@@ -238,8 +238,8 @@ def cmd_bps_population(a):
         cat = population.search_population_vars(s, key, provinces=a.provinces)
         cat.to_csv(_out(a.catalogue), index=False)
     else:
-        cat = pd.read_csv(cat_path, dtype=str)
-        cat["about_population"] = cat["about_population"].astype(str).str.lower() == "true"
+        cat = pd.read_csv(cat_path, dtype=str)  # reclassify the cached titles: the rules may have changed
+        cat["about_population"] = cat["title"].map(lambda x: population.classify_population_title(x)["about_population"])
     sel = cat[cat["about_population"]]
     if a.var_ids:
         sel = cat[cat["var_id"].astype(str).isin(a.var_ids)]

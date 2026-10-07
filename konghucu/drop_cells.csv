@@ -24,3 +24,8 @@ unit_code,year,ref,reason
 7503,2019,bpsvar:7500:79,"Gorontalo kabupaten 1.14M; 140k by every other source"
 7571,2010,bpsvar:7500:79,"Kota Gorontalo 104k; 190-200k by every other source"
 8208,2022,bpsvar:8200:341,"Pulau Taliabu total 5.6k for a kabupaten of 60k"
+1674,2017,bpsvar:1600:637,"Prabumulih islam 317676, total 324k against an official population of 226k"
+,,bps:3517:3249,"Jombang domain: a single-kecamatan table (total 19k) published without the kecamatan name"
+,,bps:3517:1677,"Jombang domain: a single-kecamatan table (total 82k) published without the kecamatan name"
+,,bps:3517:1146,"Jombang domain: a single-kecamatan table (total 71k) published without the kecamatan name"
+,,bpsvar:9400:577,"Papua Tengah 2020: 11 of its units between 0.01 and 1.7 of the official population; partial Kemenag counts"

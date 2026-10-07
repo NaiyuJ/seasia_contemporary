@@ -208,6 +208,14 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
         pop["year"] = pop["year"].astype(int)
         wide = wide.merge(pop, on=["unit_code", "year"], how="left")
         wide["total_to_pop"] = wide["total"] / wide["population"]
+        # a table from a kabupaten domain whose total is under 30% of the official population
+        # is a single-kecamatan table published without the kecamatan name (Jombang has several)
+        dom = wide["ref"].astype(str).str.extract(r":(\d{4}):")[0]
+        sub = dom.notna() & ~dom.str.endswith("00") & (wide["total_to_pop"] < 0.3)
+        if sub.any():
+            print(f"build_panel: dropping {int(sub.sum())} cells from kabupaten-domain tables whose total is <30% "
+                  f"of the population (sub-kabupaten tables): {sorted(set(wide.loc[sub, 'ref']))[:8]}")
+            wide = wide[~sub].copy()
         if "konghucu" in wide.columns:
             wide["konghucu_share_pop"] = wide["konghucu"] / wide["population"]
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)
