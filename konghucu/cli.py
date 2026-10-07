@@ -231,17 +231,26 @@ def cmd_bps_publications(a):
     'Kabupaten Sambas Dalam Angka' books whose religion table is not in the API as a table."""
     key = bps_api.get_key()
     s = requests.Session()
-    rows = []
-    for dom in a.domains:
-        try:
-            found = bps_api.list_publications(s, dom, a.keyword, key)
-        except RuntimeError as e:
-            print(f"  {dom}: {e}")
-            continue
-        for r in found:
-            rows.append({"domain": dom, "pub_id": r.get("pub_id"), "title": r.get("title"), "rl_date": r.get("rl_date"),
-                         "size": r.get("size"), "pdf": r.get("pdf")})
-        print(f"  {dom}: {len(found)} publications matching '{a.keyword}'")
+    rows, seen = [], set()
+    # searching 'dalam angka 2024' instead of 'dalam angka' skips the hundreds of
+    # per-kecamatan booklets a domain lists (Sambas: 346), i.e. ~30 pages per domain
+    keywords = [f"{a.keyword} {y}" for y in a.years] if a.years else [a.keyword]
+    for i, dom in enumerate(a.domains, 1):
+        n = 0
+        for kw in keywords:
+            try:
+                found = bps_api.list_publications(s, dom, kw, key)
+            except RuntimeError as e:
+                print(f"  [{i}/{len(a.domains)}] {dom}: {e}", flush=True)
+                continue
+            for r in found:
+                if (dom, r.get("pub_id")) in seen:
+                    continue
+                seen.add((dom, r.get("pub_id")))
+                n += 1
+                rows.append({"domain": dom, "pub_id": r.get("pub_id"), "title": r.get("title"), "rl_date": r.get("rl_date"),
+                             "size": r.get("size"), "pdf": r.get("pdf")})
+        print(f"  [{i}/{len(a.domains)}] {dom}: {n} publications matching {keywords}", flush=True)
     df = pd.DataFrame(rows, columns=["domain", "pub_id", "title", "rl_date", "size", "pdf"])
     if a.years:
         df = df[df["title"].astype(str).str.contains("|".join(a.years), regex=True)]
@@ -266,7 +275,7 @@ def cmd_bps_publications(a):
                 resp = s.get(r.pdf, timeout=120)
                 resp.raise_for_status()
                 dest.write_bytes(resp.content)
-                print(f"  {dest} ({len(resp.content) // 1024} KB)  {str(r.title)[:50]}")
+                print(f"  {dest} ({len(resp.content) // 1024} KB)  {str(r.title)[:50]}", flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"  {dest}: FAILED {type(e).__name__}: {str(e)[:80]}")
 
