@@ -226,6 +226,49 @@ def cmd_pdf_extract(a):
     df.to_csv(_out(a.out), index=False)
 
 
+def cmd_bps_publications(a):
+    """List (and optionally download) BPS PDF publications for some domains, e.g. the yearly
+    'Kabupaten Sambas Dalam Angka' books whose religion table is not in the API as a table."""
+    key = bps_api.get_key()
+    s = requests.Session()
+    rows = []
+    for dom in a.domains:
+        try:
+            found = bps_api.list_publications(s, dom, a.keyword, key)
+        except RuntimeError as e:
+            print(f"  {dom}: {e}")
+            continue
+        for r in found:
+            rows.append({"domain": dom, "pub_id": r.get("pub_id"), "title": r.get("title"), "rl_date": r.get("rl_date"),
+                         "size": r.get("size"), "pdf": r.get("pdf")})
+        print(f"  {dom}: {len(found)} publications matching '{a.keyword}'")
+    df = pd.DataFrame(rows, columns=["domain", "pub_id", "title", "rl_date", "size", "pdf"])
+    if a.years:
+        df = df[df["title"].astype(str).str.contains("|".join(a.years), regex=True)]
+    df.to_csv(_out(a.out), index=False)
+    pd.set_option("display.max_colwidth", 70)
+    pd.set_option("display.width", 200)
+    print(df[["domain", "pub_id", "rl_date", "size", "title"]].to_string(index=False))
+    print(f"{len(df)} publications -> {a.out}")
+    if a.download:
+        out_dir = Path(a.download)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for r in df.itertuples(index=False):
+            if not r.pdf:
+                continue
+            dest = out_dir / f"{r.domain}_{r.pub_id}.pdf"
+            if dest.exists() and dest.stat().st_size > 0:
+                print(f"  have {dest}")
+                continue
+            try:
+                resp = s.get(r.pdf, timeout=120)
+                resp.raise_for_status()
+                dest.write_bytes(resp.content)
+                print(f"  {dest} ({len(resp.content) // 1024} KB)  {str(r.title)[:50]}")
+            except Exception as e:  # noqa: BLE001
+                print(f"  {dest}: FAILED {type(e).__name__}: {str(e)[:80]}")
+
+
 def cmd_bps_population(a):
     """Find and fetch each province's official population-by-kabupaten series."""
     key = bps_api.get_key()
@@ -396,6 +439,14 @@ def build_parser():
     e.add_argument("--semester", type=int, default=None)
     e.add_argument("--out", default="data/konghucu/pdf_long.csv")
     e.set_defaults(func=cmd_pdf_extract)
+
+    pb = sp.add_parser("bps-publications", help="list/download BPS PDF publications (e.g. 'Dalam Angka') per domain")
+    pb.add_argument("--domains", nargs="+", required=True, help="BPS domain ids, e.g. 6101 6102 6172")
+    pb.add_argument("--keyword", default="dalam angka")
+    pb.add_argument("--years", nargs="*", help="keep titles containing any of these years")
+    pb.add_argument("--download", default=None, help="directory to download the PDFs into, e.g. data/raw/pubs")
+    pb.add_argument("--out", default="data/konghucu/bps_publications.csv")
+    pb.set_defaults(func=cmd_bps_publications)
 
     pp = sp.add_parser("bps-population", help="official population by kabupaten/kota from BPS dynamic tables")
     pp.add_argument("--provinces", nargs="*", help="2-digit province codes; default all")

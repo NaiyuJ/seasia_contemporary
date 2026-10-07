@@ -72,6 +72,25 @@ def list_static_tables(session, domain: str, keyword: str, key: str, lang: str =
     return out
 
 
+def list_publications(session, domain: str, keyword: str, key: str, lang: str = "ind") -> List[dict]:
+    """BPS publications (PDF books such as 'Kabupaten X Dalam Angka') in a domain whose
+    title matches `keyword`. Each row carries pub_id, title, rl_date, pdf (URL), size."""
+    out, page = [], 1
+    while True:
+        url = f"{BASE}/list/model/publication/lang/{lang}/domain/{domain}/keyword/{keyword}/page/{page}/key/{key}"
+        js = _get_json(session, url)
+        if js.get("data-availability") != "available" or not js.get("data"):
+            break
+        meta, rows = js["data"][0], js["data"][1]
+        for r in rows:
+            r["domain"] = domain
+        out.extend(rows)
+        if page >= int(meta.get("pages", 1)):
+            break
+        page += 1
+    return out
+
+
 def view_static_table_raw(session, domain: str, table_id: str | int, key: str, lang: str = "ind") -> dict:
     url = f"{BASE}/view/model/statictable/lang/{lang}/domain/{domain}/id/{table_id}/key/{key}"
     return _get_json(session, url)
