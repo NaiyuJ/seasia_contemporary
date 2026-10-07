@@ -33,7 +33,8 @@ POP_WORDS = {"jumlah", "proyeksi", "penduduk", "menurut", "kabupaten", "kota", "
              "tahun", "lfsp", "registrasi", "total", "seluruh", "menurutkabupaten"}
 PROVINCE_WORDS = {w for name in PROVINCES.values() for w in norm_label(name).split()} | {"d", "i", "daerah", "istimewa", "dki"}
 PROVINCE_KEYS = {norm_label(n).replace(" ", ""): c for c, n in PROVINCES.items()}
-TOTAL_LABEL_RE = r"^(jumlah|total|laki-laki \+ perempuan|l\s*\+\s*p|laki-laki dan perempuan)( \(.*\))?$"
+# labels are compared after norm_label, which turns 'Laki-laki + Perempuan' into 'laki laki + perempuan'
+TOTAL_LABEL_RE = r"^(jumlah|total|laki[ -]?laki\s*(\+|dan)\s*perempuan|l\s*\+\s*p)\b"
 
 
 def classify_population_title(title: object) -> dict:

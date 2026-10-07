@@ -94,3 +94,12 @@ def test_reconcile_discards_a_series_value_the_others_contradict():
                          "ref": ["a", "b", "c"]})
     rec = population.reconcile_population(long)
     assert rec.iloc[0]["population"] == 1720123 and rec.iloc[0]["n_refs"] == 2
+
+
+def test_total_category_spellings():
+    for lab in ["Jumlah", "Total", "Laki-laki + Perempuan", "Laki-Laki+Perempuan", "Laki-laki dan Perempuan", "Jumlah Penduduk", "L+P"]:
+        js = _js("Jiwa")
+        js["turvar"] = [{"val": 1, "label": "Laki-laki"}, {"val": 2, "label": "Perempuan"}, {"val": 3, "label": lab}]
+        js["datacontent"] = {"127110011200": 44000, "127110021200": 46000, "127110031200": 90000}
+        d = population.parse_population(js, "12", "r")
+        assert len(d) == 1 and d.iloc[0]["count"] == 90000, lab
