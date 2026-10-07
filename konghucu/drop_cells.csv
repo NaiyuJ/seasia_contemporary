@@ -29,3 +29,6 @@ unit_code,year,ref,reason
 ,,bps:3517:1677,"Jombang domain: a single-kecamatan table (total 82k) published without the kecamatan name"
 ,,bps:3517:1146,"Jombang domain: a single-kecamatan table (total 71k) published without the kecamatan name"
 ,,bpsvar:9400:577,"Papua Tengah 2020: 11 of its units between 0.01 and 1.7 of the official population; partial Kemenag counts"
+
+,,bps:3517:1036,"Jombang domain: a single-kecamatan table (total 51k) published without the kecamatan name"
+,,bps:3517:5971,"Jombang domain: a single-kecamatan table (total 51k) published without the kecamatan name"

@@ -252,8 +252,9 @@ def cmd_bps_population(a):
         print("   their variables whose title mentions penduduk (pick the right one and pass --var-ids):")
         for m in missing:
             code = m.split()[0]
-            tt = cat[(cat["province_code"] == code) & cat["title"].str.contains("enduduk", na=False)]
-            for r in tt.head(12).itertuples(index=False):
+            tt = cat[(cat["province_code"] == code) & cat["title"].str.contains("enduduk", na=False)
+                     & ~cat["title"].str.lower().str.contains(population.NOT_POP_RE, na=False, regex=True)]
+            for r in tt.head(20).itertuples(index=False):
                 print(f"     {r.domain} var {r.var_id:>5} [{r.unit}] {str(r.title)[:95]}")
     if a.search_only:
         return

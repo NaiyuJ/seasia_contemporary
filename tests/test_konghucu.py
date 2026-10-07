@@ -584,10 +584,12 @@ def test_konghucu_breaks():
 
 
 def test_konghucu_breaks_ignores_tiny_counts():
-    panel = pd.DataFrame({"unit_code": ["5101"] * 2, "year": [2010, 2025], "konghucu": [2, 17],
+    panel = pd.DataFrame({"unit_code": ["5101"] * 2, "year": [2020, 2021], "konghucu": [2, 17],
                           "konghucu_ref": ["a", "b"]})
     assert harmonize.konghucu_breaks(panel).empty
     assert len(harmonize.konghucu_breaks(panel, min_count=10)) == 1
+    far = panel.assign(year=[2010, 2025])  # observations 15 years apart are not a break
+    assert harmonize.konghucu_breaks(far, min_count=10).empty
 
 
 def test_drop_cells_and_total_outliers(tmp_path):
@@ -708,8 +710,11 @@ def test_shipped_drop_rules_parse_and_each_sets_a_field():
 def test_sub_kabupaten_table_dropped_against_population():
     big = {"islam": 90000, "kristen": 8000, "katolik": 1500}
     small = {"islam": 20000, "kristen": 100, "katolik": 10}
+    half = {"islam": 45000, "kristen": 4000, "katolik": 750}
+    huge = {k: v * 12 for k, v in big.items()}
     long = _long([("3517", 2016, "bps:3517:3065", small, None), ("3517", 2018, "bps:3517:3942", big, None),
-                  ("3517", 2019, "bps:3500:10", small, None)])
-    pop = pd.DataFrame({"unit_code": ["3517"] * 3, "year": [2016, 2018, 2019], "population": [100000] * 3})
+                  ("3517", 2019, "bps:3500:10", half, None), ("3517", 2020, "bpsvar:3517:7", huge, None)])
+    pop = pd.DataFrame({"unit_code": ["3517"] * 4, "year": [2016, 2018, 2019, 2020], "population": [100000] * 4})
     panel = harmonize.build_panel(long, population=pop)
-    assert list(panel["year"]) == [2018, 2019]  # the province-domain table is kept whatever its ratio
+    # 2016: sub-kecamatan table; 2020: a province row rolled up as the unit (>2x); 2019 at 0.5x is kept
+    assert list(panel["year"]) == [2018, 2019]

@@ -48,11 +48,11 @@
 
 ## 官方人口作为锚
 
-`bps-population` 在每个省域里找标题是"Jumlah Penduduk Menurut Kabupaten/Kota"一类的动态变量（排除按年龄、贫困、就业、kecamatan 分的；按性别分的只用它的 Jumlah 类别）。没找到候选的省会把标题含 penduduk 的变量列出来，人工挑了用 `--var-ids` 传入，抓全部年份，同一县年若有几个序列取中位数，输出 `data/konghucu/population.csv`（unit_code, year, population, n_refs, spread）。`harmonize` 默认读取它，面板里加 `population`、`total_to_pop`、`konghucu_share_pop`。
+`bps-population` 在每个省域里找标题是"Jumlah Penduduk Menurut Kabupaten/Kota"一类的动态变量（排除按年龄、贫困、就业、kecamatan 分的；按性别分的只用它的 Jumlah 类别）。没找到候选的省会把标题含 penduduk 的变量列出来，人工挑了用 `--var-ids` 传入，抓全部年份，同一县年若有几个序列，以该省覆盖县年最多的序列为主，其他序列只补它没有的县年（取中位数会把 2014 年的劳动力人口和总人口平均掉），超出县级合理范围（3 千到 700 万）的值忽略，输出 `data/konghucu/population.csv`（unit_code, year, population, n_refs, spread）。`harmonize` 默认读取它，面板里加 `population`、`total_to_pop`、`konghucu_share_pop`。
 
 用途有两个。一是孔教占比的分母用官方人口而不是宗教表各列之和，宗教表少一列或多抄一行不会传到分母里。二是离群值判断用官方人口做锚而不是该县各年的中位数：Buton（7401）2014 年拆出两个新县后人口减半，按中位数会被当成错误，按当年人口则正常；反过来苏拉威西北那张 Kemenag 序列各年在真实人口的 0.2 到 2 倍之间乱跳，按中位数只能抓到一半。
 
-面板构建时还会按格子自身的值丢掉明显不是人数的格子（`quality` 列）：各宗教加起来约等于 100 的是百分比表；四个以上宗教数值完全相同的是占位符；只有合计没有分宗教的没法用；缺 Islam、Kristen、Katolik 任一列的，合计设为缺失（`partial`），宗教人数本身保留。来源报告的合计若与各宗教之和相差 10% 以上，用各宗教之和（`total_reported` 保留原值）。
+有官方人口时，合计超过人口 2 倍或不到 0.3 倍的格子一律丢掉（Tangerang Selatan 2023 把全省 1,060 万当成了市的数；苏拉威西东南的 2022 表全省都是 0.00 是因为人口序列标题写 Ribu Jiwa 而数值已经是人，现已识别）。面板构建时还会按格子自身的值丢掉明显不是人数的格子（`quality` 列）：各宗教加起来约等于 100 的是百分比表；四个以上宗教数值完全相同的是占位符；只有合计没有分宗教的没法用；缺 Islam、Kristen、Katolik 任一列的，合计设为缺失（`partial`），宗教人数本身保留。来源报告的合计若与各宗教之和相差 10% 以上，用各宗教之和（`total_reported` 保留原值）。
 
 ## 两套口径：Kemenag 与 Dukcapil
 

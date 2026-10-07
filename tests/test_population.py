@@ -40,8 +40,17 @@ def test_fetch_population_scales_units(tmp_path):
 def test_reconcile_median_and_spread():
     long = pd.DataFrame({"unit_code": ["1271"] * 3, "year": [2020] * 3, "population": [89000, 90000, 100000],
                          "ref": ["a", "b", "c"]})
-    rec = population.reconcile_population(long)
-    assert rec.iloc[0]["population"] == 90000 and rec.iloc[0]["n_refs"] == 3 and abs(rec.iloc[0]["spread"] - 1.124) < 1e-3
+    rec = population.reconcile_population(long)  # equal coverage: first ref by name is the primary series
+    assert rec.iloc[0]["population"] == 89000 and rec.iloc[0]["n_refs"] == 3 and abs(rec.iloc[0]["spread"] - 1.124) < 1e-3
+
+
+def test_reconcile_prefers_the_series_with_most_coverage_and_drops_implausible_values():
+    rows = [("1271", y, 90000 + y, "wide") for y in (2019, 2020, 2021)] + [("1271", 2020, 50000, "narrow"),
+                                                                            ("1271", 2022, 118_000_000, "narrow")]
+    long = pd.DataFrame(rows, columns=["unit_code", "year", "population", "ref"])
+    rec = population.reconcile_population(long).set_index("year")
+    assert rec.loc[2020, "population"] == 92020 and rec.loc[2020, "ref"] == "wide" and rec.loc[2020, "n_refs"] == 2
+    assert 2022 not in rec.index  # 118 million is not a kabupaten
 
 
 def test_parse_population_uses_total_category_of_sex_split_variable():

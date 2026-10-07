@@ -19,20 +19,36 @@ import pandas as pd
 from . import bps_api
 from .religion import PROVINCES, norm_label
 
-POP_TITLE_RE = (r"^(jumlah )?penduduk( menurut kabupaten/kota| kabupaten/kota| per kabupaten/kota)?( \(.*\))?"
-                r"( hasil .*| di provinsi .*| provinsi .*| menurut kabupaten/kota .*| (menurut |dan )?jenis kelamin.*)?$")
-TOTAL_LABEL_RE = r"^(jumlah|total|laki-laki \+ perempuan|l\s*\+\s*p|laki-laki dan perempuan)( \(.*\))?$"
 NOT_POP_RE = (r"agama|umur|usia|kelompok|miskin|kerja|kegiatan|angkatan|laju|kepadatan|rasio|persen|rumah tangga|generasi|"
-
-              r"kecamatan|desa|kelurahan|pendidikan|kawin|status|lahir|migrasi|cacat|disabilitas|wna|asing|"
-              r"penerima|peserta|\bkabupaten (?!hasil|per\b|menurut|dan\b|di\b|dalam|tahun)[a-z]|"
-              r"(?<!kabupaten/)\bkota (?!hasil|per\b|menurut|dan\b|di\b|dalam|tahun)[a-z]|per km|sex|pertumbuhan")
+              r"kecamatan|desa|kelurahan|pendidikan|kawin|status|lahir|migrasi|cacat|disabilitas|wna|asing|perkotaan|perdesaan|"
+              r"pedesaan|penerima|peserta|per km|sex|pertumbuhan|konsumsi|internet|telepon|pengeluaran|pangan|pengangguran|"
+              r"bekerja|jam|lapangan|triwulan|bukan")
+# words a plain population-by-kabupaten title may consist of, besides a province name
+POP_WORDS = {"jumlah", "proyeksi", "penduduk", "menurut", "kabupaten", "kota", "kabupaten/kota", "kab", "kab/kota", "kabupeten",
+             "dan", "jenis", "kelamin", "provinsi", "prov", "di", "hasil", "sensus", "survei", "antar", "supas", "sp",
+             "jiwa", "ribu", "orang", "laki-laki", "laki", "perempuan", "l+p", "laki-laki+perempuan", "laki+perempuan", "termasuk", "per",
+             "tahun", "lfsp", "registrasi", "total", "seluruh", "wilayah", "indonesia", "menurutkabupaten"}
+PROVINCE_WORDS = {w for name in PROVINCES.values() for w in norm_label(name).split()} | {"d.i.", "daerah", "istimewa", "dki"}
+TOTAL_LABEL_RE = r"^(jumlah|total|laki-laki \+ perempuan|l\s*\+\s*p|laki-laki dan perempuan)( \(.*\))?$"
 
 
 def classify_population_title(title: object) -> dict:
+    """True for a title that is plain population by kabupaten/kota (possibly by sex, used
+    through its total; possibly a projection or census result), false for anything
+    about a subgroup (age, labour, poverty, urban) or a rate."""
     t = norm_label(title).strip()
-    one_sex = (bool(re.search(r"\blaki", t)) != bool(re.search(r"\bperempuan", t)))  # one sex only, not L+P
-    return {"about_population": bool(re.search(POP_TITLE_RE, t)) and not re.search(NOT_POP_RE, t) and not one_sex}
+    t = re.sub(r"\[[^\]]*\]", " ", t)  # '[Proyeksi SP2010]' tags
+    if re.search(NOT_POP_RE, t) or "penduduk" not in t:
+        return {"about_population": False}
+    if not re.match(r"^(proyeksi |jumlah |total )?penduduk\b", t):
+        return {"about_population": False}
+    words = re.sub(r"[(),.;:*-]+", " ", t).split()
+    extra = [w for w in words if w not in POP_WORDS and w not in PROVINCE_WORDS and not re.fullmatch(r"(19|20)\d{2}(/\d+)?", w)
+             and not re.fullmatch(r"(sp|supas|lfsp)\d{4}", w)]
+    if extra:
+        return {"about_population": False}
+    one_sex = bool(re.search(r"\blaki", t)) != bool(re.search(r"\bperempuan", t))  # one sex only, not L+P
+    return {"about_population": not one_sex}
 
 
 def search_population_vars(session, key: str, provinces: Optional[List[str]] = None, sleep_s: float = 0.2,
@@ -111,7 +127,11 @@ def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Option
                     f"{str(rec.title)[:50]}")
                 continue
             d = d.copy()
-            d["population"] = d["count"] * _scale(getattr(rec, "unit", ""), getattr(rec, "title", ""))
+            sc = _scale(getattr(rec, "unit", ""), getattr(rec, "title", ""))
+            if sc > 1 and d["count"].median() * sc > PLAUSIBLE_MAX and d["count"].median() <= PLAUSIBLE_MAX:
+                log(f"  {ref}: unit says thousands but values are already persons; not scaled")
+                sc = 1.0  # Sulawesi Tenggara '(Ribu Jiwa)' in the title, persons in the cells
+            d["population"] = d["count"] * sc
             yrs = sorted(set(d["year"].dropna().astype(int)))
             log(f"  [{i}/{len(catalogue)}] {ref} ok units={d['unit_name'].nunique()} years={yrs[:1]}..{yrs[-1:]}  "
                 f"{str(rec.title)[:50]}")
@@ -123,14 +143,25 @@ def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Option
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=cols)
 
 
+PLAUSIBLE_MIN, PLAUSIBLE_MAX = 3_000, 7_000_000  # smallest kabupaten ~ 10k, Bogor ~ 5.5M
+
+
 def reconcile_population(long: pd.DataFrame) -> pd.DataFrame:
-    """One row per unit-year: median across variables, with the number of variables and
-    the max/min spread so disagreements between BPS series are visible."""
+    """One row per unit-year. Within a province the variable covering the most unit-years
+    is the primary series; other variables fill only the unit-years it lacks, so a unit's
+    series is internally consistent instead of a median that mixes definitions (a 2014
+    labour-force count averaged with a population count gave Sulawesi Selatan 2.4x
+    spreads). n_refs and spread report how far the other variables are from the chosen
+    value. Values outside the plausible range for a kabupaten are ignored."""
     d = long[long["unit_code"].notna() & long["year"].notna() & long["population"].notna()].copy()
     d["year"] = d["year"].astype(int)
-    d = d[d["population"] > 0]
+    d["unit_code"] = d["unit_code"].astype(str).str.zfill(4)
+    d = d[d["population"].between(PLAUSIBLE_MIN, PLAUSIBLE_MAX)]
+    cover = d.groupby("ref").size().rename("cover")
+    d = d.merge(cover, left_on="ref", right_index=True)
+    d = d.sort_values(["unit_code", "year", "cover", "ref"], ascending=[True, True, False, True])
+    best = d.drop_duplicates(["unit_code", "year"], keep="first")[["unit_code", "year", "population", "ref"]]
     g = d.groupby(["unit_code", "year"])["population"]
-    out = g.median().rename("population").reset_index()
-    out["n_refs"] = g.nunique().values
-    out["spread"] = (g.max() / g.min()).round(3).values
+    stats = pd.DataFrame({"n_refs": g.nunique(), "spread": (g.max() / g.min()).round(3)}).reset_index()
+    out = best.merge(stats, on=["unit_code", "year"])
     return out.sort_values(["unit_code", "year"]).reset_index(drop=True)

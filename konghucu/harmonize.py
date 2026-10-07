@@ -216,12 +216,19 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
             print(f"build_panel: dropping {int(sub.sum())} cells from kabupaten-domain tables whose total is <30% "
                   f"of the population (sub-kabupaten tables): {sorted(set(wide.loc[sub, 'ref']))[:8]}")
             wide = wide[~sub].copy()
+        # no count of residents is twice the population or under a third of it: a province
+        # row rolled up as the kota (Tangerang Selatan 10.6M), or a partial count
+        bad = wide["total_to_pop"].notna() & ((wide["total_to_pop"] > 2) | (wide["total_to_pop"] < 0.3))
+        if bad.any():
+            print(f"build_panel: dropping {int(bad.sum())} cells whose total is >2x or <0.3x the official population: "
+                  f"{sorted(set(wide.loc[bad, 'ref']))[:8]}")
+            wide = wide[~bad].copy()
         if "konghucu" in wide.columns:
             wide["konghucu_share_pop"] = wide["konghucu"] / wide["population"]
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)
 
 
-def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0, min_count: float = 20) -> pd.DataFrame:
+def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0, min_count: float = 20, max_gap: int = 4) -> pd.DataFrame:
     """Units whose konghucu count jumps by more than `ratio` between consecutive observed
     years: usually a change of source definition (Kemenag adherent counts vs Dukcapil
     ID-card registration), not a real change. One row per jump with both refs. Jumps
@@ -233,7 +240,7 @@ def konghucu_breaks(panel: pd.DataFrame, ratio: float = 5.0, min_count: float = 
     for code, g in p.groupby("unit_code"):
         prev = None
         for r in g.itertuples(index=False):
-            if prev is not None and min(prev.konghucu, r.konghucu) > 0 and \
+            if prev is not None and min(prev.konghucu, r.konghucu) > 0 and r.year - prev.year <= max_gap and \
                     max(prev.konghucu, r.konghucu) >= min_count and \
                     max(prev.konghucu, r.konghucu) / min(prev.konghucu, r.konghucu) > ratio:
                 rows.append({"unit_code": code, "year_a": prev.year, "konghucu_a": prev.konghucu, "ref_a": prev.konghucu_ref,
