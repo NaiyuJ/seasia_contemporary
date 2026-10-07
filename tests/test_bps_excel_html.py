@@ -86,3 +86,48 @@ def test_letter_spaced_names_are_names():
     assert k.loc["01 N i a s", "level"] == "kabupaten" and k.loc["__PROVINCE__", "count"] == 738
     from konghucu.religion import squash_unit_name
     assert squash_unit_name("75 M e d a n") == "medan"
+
+
+def _sex_table(blocks, super_labels=None):
+    rels = ["Islam", "Kristen", "Katolik", "Hindu", "Budha", "Khong", "Lainnya", "Total"]
+    rows = ["<tr><td colspan=25>Penduduk Menurut Agama, Jenis Kelamin dan Kabupaten/Kota 2010</td></tr>"]
+    if super_labels:
+        rows.append("<tr><td></td>" + "".join(f"<td colspan={len(rels)}>{lab}</td>" for lab in super_labels) + "</tr>")
+    rows.append("<tr><td>Regency/City</td>" + "".join(f"<td>{r}</td>" for r in rels) * len(blocks) + "</tr>")
+    for name, per_block in [("Cilacap", blocks)]:
+        cells = "".join("".join(f"<td>{v}</td>" for v in blk) for blk in per_block)
+        rows.append(f"<tr><td>{name}</td>{cells}</tr>")
+    return "<table>" + "".join(rows) + "</table>"
+
+
+def _wide(df):
+    return df[df.unit_name == "Cilacap"].set_index("religion")["count"].to_dict()
+
+
+def test_sex_split_table_uses_total_block():
+    male = [808199, 7670, 3430, 73, 1160, 10, 587, 821129]
+    female = [800000, 7000, 3000, 70, 1100, 12, 500, 811682]
+    total = [m + f for m, f in zip(male, female)]
+    html = _sex_table([male, female, total], ["Laki-laki / Male", "Perempuan / Female", "Jumlah / Total"])
+    d = bps_api.parse_religion_html(html, "33", 2010, "t")
+    w = _wide(d)
+    assert w["islam"] == 1608199 and w["konghucu"] == 22 and w["total"] == 1632811
+
+
+def test_sex_split_table_without_labels_takes_last_block_and_sums_male_female():
+    male = [808199, 7670, 3430, 73, 1160, 10, 587, 821129]
+    female = [800000, 7000, 3000, 70, 1100, 12, 500, 811682]
+    total = [m + f for m, f in zip(male, female)]
+    w = _wide(bps_api.parse_religion_html(_sex_table([male, female, total]), "33", 2010, "t"))
+    assert w["islam"] == 1608199  # no super-header: BPS prints the total last
+    w = _wide(bps_api.parse_religion_html(_sex_table([male, female], ["Laki-laki", "Perempuan"]), "33", 2010, "t"))
+    assert w["islam"] == 1608199 and w["konghucu"] == 22  # male + female only: added up
+
+
+def test_multi_year_blocks_are_kept():
+    html = ("<table><tr><td>Kabupaten</td><td colspan=2>2019</td><td colspan=2>2020</td></tr>"
+            "<tr><td></td><td>Islam</td><td>Kristen</td><td>Islam</td><td>Kristen</td></tr>"
+            "<tr><td>Cilacap</td><td>100</td><td>10</td><td>110</td><td>11</td></tr></table>")
+    d = bps_api.parse_religion_html(html, "33", None, "t")
+    got = d[d.unit_name == "Cilacap"].set_index(["year", "religion"])["count"].to_dict()
+    assert got == {(2019, "islam"): 100, (2019, "kristen"): 10, (2020, "islam"): 110, (2020, "kristen"): 11}

@@ -6,7 +6,9 @@ from konghucu import population
 def test_title_classifier():
     yes = ["Jumlah Penduduk Menurut Kabupaten/Kota (Jiwa)", "Jumlah Penduduk (Ribu Jiwa)", "Penduduk",
            "Jumlah Penduduk Menurut Kabupaten/Kota Hasil Proyeksi", "Penduduk Menurut Kabupaten/Kota di Provinsi Jawa Tengah"]
-    no = ["Jumlah Penduduk Menurut Kabupaten/Kota dan Jenis Kelamin", "Jumlah Penduduk Miskin", "Jumlah Penduduk Menurut Agama",
+    yes.append("Jumlah Penduduk Menurut Kabupaten/Kota dan Jenis Kelamin")  # used through its 'Jumlah' category
+    no = ["Jumlah Penduduk Menurut Kabupaten/Kota (Laki-Laki)", "Jumlah Penduduk Miskin", "Jumlah Penduduk Menurut Agama",
+          "Penduduk Menurut Kabupaten/Kota dan Jenis Kegiatan", "Jumlah Penduduk Hasil Sensus Penduduk 2020 menurut Generasi dan Kabupaten/Kota",
           "Jumlah Penduduk Kabupaten Bogor", "Laju Pertumbuhan Penduduk", "Kepadatan Penduduk", "Jumlah Penduduk Menurut Kecamatan"]
     assert all(population.classify_population_title(t)["about_population"] for t in yes)
     assert not any(population.classify_population_title(t)["about_population"] for t in no)
@@ -40,3 +42,13 @@ def test_reconcile_median_and_spread():
                          "ref": ["a", "b", "c"]})
     rec = population.reconcile_population(long)
     assert rec.iloc[0]["population"] == 90000 and rec.iloc[0]["n_refs"] == 3 and abs(rec.iloc[0]["spread"] - 1.124) < 1e-3
+
+
+def test_parse_population_uses_total_category_of_sex_split_variable():
+    js = _js("Jiwa")
+    js["turvar"] = [{"val": 1, "label": "Laki-laki"}, {"val": 2, "label": "Perempuan"}, {"val": 3, "label": "Jumlah"}]
+    js["datacontent"] = {"127110011200": 44000, "127110021200": 46000, "127110031200": 90000}
+    d = population.parse_population(js, "12", "r")
+    assert len(d) == 1 and d.iloc[0]["count"] == 90000 and d.iloc[0]["unit_name"] == "Sibolga"
+    js["turvar"] = js["turvar"][:2]
+    assert population.parse_population(js, "12", "r").empty  # male and female only: not used

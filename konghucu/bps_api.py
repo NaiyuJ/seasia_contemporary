@@ -173,6 +173,53 @@ def _flatten_columns(cols) -> List[str]:
     return out
 
 
+SEX_TOTAL_RE = r"jumlah|total|l\s*\+\s*p|laki.*perempuan|male.*female|both"
+SEX_PART_RE = r"laki|perempuan|\bmale|female|\bpria|wanita|l/p|\bl\b|\bp\b"
+
+
+def split_header_blocks(rel_cols):
+    """[(col, religion, year)] -> list of blocks, a block being a run of columns in which
+    no religion repeats. A table 'by religion and sex' has three blocks (male, female,
+    total); a multi-year table has one block per year."""
+    blocks, cur, seen = [], [], set()
+    for j, rel, yr in rel_cols:
+        if rel in seen:
+            blocks.append(cur)
+            cur, seen = [], set()
+        cur.append((j, rel, yr))
+        seen.add(rel)
+    if cur:
+        blocks.append(cur)
+    return blocks
+
+
+def choose_sex_blocks(grid, h, rel_cols):
+    """When the header repeats the religions without distinct years, the blocks are
+    sex groups. Return (columns to keep, columns to add up): the 'Jumlah/Total' block
+    when the rows above the header label one, else all blocks summed (Laki-laki +
+    Perempuan), else when there is no label at all the last block (BPS prints the
+    total last). Multi-year blocks are returned unchanged."""
+    blocks = split_header_blocks(rel_cols)
+    if len(blocks) < 2:
+        return rel_cols, None
+    years = [{yr for _, _, yr in blk} for blk in blocks]
+    if len({tuple(sorted(str(y) for y in ys)) for ys in years}) > 1:
+        return rel_cols, None  # one block per year: keep every column
+    labels = []
+    for blk in blocks:
+        cols = [j for j, _, _ in blk]
+        txt = " ".join(norm_label(grid[i][j]) for i in range(max(0, h - 3), h)
+                       for j in cols if j < len(grid[i]) and grid[i][j])
+        labels.append(txt)
+    total = [i for i, lab in enumerate(labels) if re.search(SEX_TOTAL_RE, lab)]
+    if total:
+        return blocks[total[-1]], None
+    parts = [i for i, lab in enumerate(labels) if re.search(SEX_PART_RE, lab)]
+    if parts and len(parts) == len(blocks):
+        return None, blocks  # male and female only: add them up
+    return blocks[-1], None
+
+
 def _block_level(label: str):
     """'Kabupaten/ Regency' -> 'kabupaten', 'Kota/ Municipality' -> 'kota', else None."""
     nm = norm_label(label)
@@ -228,9 +275,16 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
                 continue
             if yr is None and header2 is not None and j < len(header2):
                 yr = year_from_text(header2[j]) if canonical_religion(header2[j]) is None else None
+            for i in (h - 1, h - 2):  # a year super-header above the religions ('2019' spanning a block)
+                if yr is None and i >= 0 and j < len(grid[i]) and grid[i][j] and len(grid[i][j].strip()) <= 12 \
+                        and canonical_religion(grid[i][j]) is None:
+                    yr = year_from_text(grid[i][j])
             rel_cols.append((j, rel, yr))
         if not rel_cols:
             continue
+        rel_cols, sum_blocks = choose_sex_blocks(grid, h, rel_cols)
+        if sum_blocks is not None:
+            rel_cols = sum_blocks[0]
         data_start = h + 1
         if header2 is not None and any(_block_level(c) for c in header2 if c):
             header2 = None  # a 'Kabupaten / Regency' block label, handled as data below
@@ -271,6 +325,12 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             if row_year and year and row_year != year and re.search(r"jumlah|total", nm):
                 continue  # a previous year's total row ('Jumlah 2018' in a 2019 table)
             vals = [(j, rel, yr, parse_count(row[j]) if j < len(row) else None) for j, rel, yr in rel_cols]
+            if sum_blocks is not None:  # male + female blocks: add the same religion across blocks
+                summed = []
+                for k, (j, rel, yr, v) in enumerate(vals):
+                    parts = [parse_count(row[blk[k][0]]) if blk[k][0] < len(row) else None for blk in sum_blocks]
+                    summed.append((j, rel, yr, sum(p for p in parts if p is not None) if any(p is not None for p in parts) else None))
+                vals = summed
             if all(v is None for *_, v in vals):
                 continue
             if all(v is None or (1990 <= v <= 2035 and float(v).is_integer()) for *_, v in vals) \

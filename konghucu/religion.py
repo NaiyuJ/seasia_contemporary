@@ -10,7 +10,7 @@ LONG_COLUMNS = ["source", "province_code", "unit_code", "unit_name", "year", "se
 
 # canonical religion -> regex over a lowercased, de-accented label
 RELIGION_PATTERNS = [
-    ("konghucu", r"k?h?ong\s*hu\s*ch?u|k?h?ong\s*hu\s*tju|kong\s*fu\s*(cu|tse)|confuc|konfusian"),
+    ("konghucu", r"k?h?ong\s*hu\s*ch?u|k?h?ong\s*hu\s*tju|kong\s*fu\s*(cu|tse)|confuc|konfusian|\bkhong\b"),
     ("kepercayaan", r"kepercayaan|penghayat|aliran"),
     ("islam", r"\bislam\b|muslim"),
     ("kristen", r"kristen|protestan"),

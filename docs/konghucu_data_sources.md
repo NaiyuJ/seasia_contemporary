@@ -42,12 +42,13 @@
 - `bps:6400:321`（东加里曼丹 2015，Kemenag 口径）：Samarinda 孔教 32,001 人，比任何其他来源高一个数量级，原表如此。已列入排除名单。
 - 北苏门答腊 Sibolga（1271）：`bps:1200:2793`（2021）给的穆斯林人数 155,207 几乎等于同表 Tapanuli Tengah 的 155,188，佛教 15,078 也不对，合计 185,939 超过全市人口（约 9 万）；`bpsvar:1200:804`（2025）给的天主教 99,747 同样超过全市人口。用 `bps-inspect --raw-rows` 核对过，原始单元格就是这些数，不是解析错位。这类单格错误不能整表排除，列在 `konghucu/drop_cells.csv`（unit_code, year, ref, reason，前三个字段任选，设了的字段都要匹配：unit_code+year 去掉一个县年，ref 去掉整张表，ref+year 去掉动态表的某一年），`harmonize` 默认读取并剔除。
 - 同类问题的筛法：`harmonize` 会把 total 偏离该县各年中位数 35% 以上的县年列出并写到 `total_outliers.csv`。一个县几年内不会多出或少掉三分之一人口，这种基本都是某个宗教抄错了行。核对原始单元格后加进 `drop_cells.csv`。面板每个县年的所有宗教都来自同一张表（`ref` 列），不会把两张表的宗教拼在一起。
+- 按宗教和性别分列的表（如中爪哇 2010 普查表 `bps:3300:791`：男、女、合计三块各一组宗教列）：解析时按宗教列重复把表头切成块，取上方标注 Jumlah/Total 的那块；没有标注就取最后一块（BPS 的惯例是合计在最后）；只有男、女两块就相加。之前只读到第一块（男性），35 个县都是真实人口的一半以下。按年份分块的表（各块年份不同）不受影响。
 - 东爪哇、日惹大多数县级表没有孔教列，孔教并在 Lainnya 里。这些县只能把 Lainnya 当上界。
 - 县级表的总计行标签不统一（Jumlah、县名、年份、或没有），识别顺序是：Jumlah 标签，等于其他行之和，县名且明显最大，最后加总 kecamatan（source 记为 bps_kabsum）。
 
 ## 官方人口作为锚
 
-`bps-population` 在每个省域里找标题是"Jumlah Penduduk Menurut Kabupaten/Kota"一类的动态变量（排除按性别、年龄、贫困、kecamatan 分的），抓全部年份，同一县年若有几个序列取中位数，输出 `data/konghucu/population.csv`（unit_code, year, population, n_refs, spread）。`harmonize` 默认读取它，面板里加 `population`、`total_to_pop`、`konghucu_share_pop`。
+`bps-population` 在每个省域里找标题是"Jumlah Penduduk Menurut Kabupaten/Kota"一类的动态变量（排除按年龄、贫困、就业、kecamatan 分的；按性别分的只用它的 Jumlah 类别）。没找到候选的省会把标题含 penduduk 的变量列出来，人工挑了用 `--var-ids` 传入，抓全部年份，同一县年若有几个序列取中位数，输出 `data/konghucu/population.csv`（unit_code, year, population, n_refs, spread）。`harmonize` 默认读取它，面板里加 `population`、`total_to_pop`、`konghucu_share_pop`。
 
 用途有两个。一是孔教占比的分母用官方人口而不是宗教表各列之和，宗教表少一列或多抄一行不会传到分母里。二是离群值判断用官方人口做锚而不是该县各年的中位数：Buton（7401）2014 年拆出两个新县后人口减半，按中位数会被当成错误，按当年人口则正常；反过来苏拉威西北那张 Kemenag 序列各年在真实人口的 0.2 到 2 倍之间乱跳，按中位数只能抓到一半。
 

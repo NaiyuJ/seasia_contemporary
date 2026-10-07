@@ -249,7 +249,12 @@ def cmd_bps_population(a):
                if c not in set(sel["province_code"]) and (not a.provinces or c in a.provinces)]
     if missing:
         print(f"== provinces with no candidate: {'; '.join(missing)}")
-        print("   look at the full catalogue and pass the right ids with --var-ids")
+        print("   their variables whose title mentions penduduk (pick the right one and pass --var-ids):")
+        for m in missing:
+            code = m.split()[0]
+            tt = cat[(cat["province_code"] == code) & cat["title"].str.contains("enduduk", na=False)]
+            for r in tt.head(12).itertuples(index=False):
+                print(f"     {r.domain} var {r.var_id:>5} [{r.unit}] {str(r.title)[:95]}")
     if a.search_only:
         return
     print("== fetching")

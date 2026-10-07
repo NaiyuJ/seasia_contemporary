@@ -20,8 +20,10 @@ from . import bps_api
 from .religion import PROVINCES, norm_label
 
 POP_TITLE_RE = (r"^(jumlah )?penduduk( menurut kabupaten/kota| kabupaten/kota| per kabupaten/kota)?( \(.*\))?"
-                r"( hasil .*| di provinsi .*| provinsi .*| menurut kabupaten/kota .*)?$")
-NOT_POP_RE = (r"agama|jenis kelamin|umur|usia|kelompok|miskin|kerja|angkatan|laju|kepadatan|rasio|persen|rumah tangga|"
+                r"( hasil .*| di provinsi .*| provinsi .*| menurut kabupaten/kota .*| (menurut |dan )?jenis kelamin.*)?$")
+TOTAL_LABEL_RE = r"^(jumlah|total|laki-laki \+ perempuan|l\s*\+\s*p|laki-laki dan perempuan)( \(.*\))?$"
+NOT_POP_RE = (r"agama|umur|usia|kelompok|miskin|kerja|kegiatan|angkatan|laju|kepadatan|rasio|persen|rumah tangga|generasi|"
+
               r"kecamatan|desa|kelurahan|pendidikan|kawin|status|lahir|migrasi|cacat|disabilitas|wna|asing|"
               r"penerima|peserta|\bkabupaten (?!hasil|per\b|menurut|dan\b|di\b|dalam|tahun)[a-z]|"
               r"(?<!kabupaten/)\bkota (?!hasil|per\b|menurut|dan\b|di\b|dalam|tahun)[a-z]|per km|sex|pertumbuhan")
@@ -29,7 +31,8 @@ NOT_POP_RE = (r"agama|jenis kelamin|umur|usia|kelompok|miskin|kerja|angkatan|laj
 
 def classify_population_title(title: object) -> dict:
     t = norm_label(title).strip()
-    return {"about_population": bool(re.search(POP_TITLE_RE, t)) and not re.search(NOT_POP_RE, t)}
+    one_sex = (bool(re.search(r"\blaki", t)) != bool(re.search(r"\bperempuan", t)))  # one sex only, not L+P
+    return {"about_population": bool(re.search(POP_TITLE_RE, t)) and not re.search(NOT_POP_RE, t) and not one_sex}
 
 
 def search_population_vars(session, key: str, provinces: Optional[List[str]] = None, sleep_s: float = 0.2,
@@ -56,13 +59,30 @@ def search_population_vars(session, key: str, provinces: Optional[List[str]] = N
                                        "about_population"])
 
 
-def _scale(unit: object) -> float:
+def _scale(unit: object, title: object = "") -> float:
     u = norm_label(unit)
     if "ribu" in u or "000" in u:
         return 1000.0
     if "juta" in u:
         return 1e6
+    if u in ("", "tidak ada satuan", "none") and "ribu" in norm_label(title):
+        return 1000.0  # unit missing but the title says '(Ribu Jiwa)'
     return 1.0
+
+
+def parse_population(js: dict, province_code: str, ref: str) -> pd.DataFrame:
+    """Dynamic-table JSON -> one row per unit x year. A variable with a single category
+    is taken as is; one split by sex (or anything else) is used only through its
+    'Jumlah'/'Total' category, so parts are never mistaken for the whole."""
+    from .bps_api import parse_dynamic
+    turvar = [x for x in (js.get("turvar") or []) if isinstance(x, dict)]
+    if len(turvar) > 1:
+        tot = [tv for tv in turvar if re.search(TOTAL_LABEL_RE, norm_label(tv.get("label", "")))]
+        if not tot:
+            return pd.DataFrame()
+        js = dict(js, turvar=[tot[0]])
+    d = parse_dynamic(js, province_code, ref, source="bpspop")
+    return d[(d["religion"] == "total") & (d["unit_name"] != "__PROVINCE__") & d["count"].notna()]
 
 
 def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Optional[str] = None,
@@ -85,13 +105,13 @@ def fetch_population(session, catalogue: pd.DataFrame, key: str, raw_dir: Option
                     raw.parent.mkdir(parents=True, exist_ok=True)
                     raw.write_text(json.dumps(js, ensure_ascii=False), encoding="utf-8")
                 time.sleep(sleep_s)
-            d = bps_api.parse_dynamic(js, str(rec.province_code), ref, source="bpspop")
-            d = d[(d["religion"] == "total") & (d["unit_name"] != "__PROVINCE__") & d["count"].notna()]
+            d = parse_population(js, str(rec.province_code), ref)
             if d.empty:
-                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY  {str(rec.title)[:50]}")
+                log(f"  [{i}/{len(catalogue)}] {ref} EMPTY (no data, or split by category without a 'Jumlah')  "
+                    f"{str(rec.title)[:50]}")
                 continue
             d = d.copy()
-            d["population"] = d["count"] * _scale(getattr(rec, "unit", ""))
+            d["population"] = d["count"] * _scale(getattr(rec, "unit", ""), getattr(rec, "title", ""))
             yrs = sorted(set(d["year"].dropna().astype(int)))
             log(f"  [{i}/{len(catalogue)}] {ref} ok units={d['unit_name'].nunique()} years={yrs[:1]}..{yrs[-1:]}  "
                 f"{str(rec.title)[:50]}")
