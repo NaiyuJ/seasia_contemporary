@@ -5,7 +5,7 @@ from konghucu import dalam_angka as da
 SAMBAS_TEXT = ("SOCIAL AND WELFARE\n4.3 AGAMA DAN SOSIAL LAINNYA\nTabel Jumlah Penduduk Menurut Kecamatan dan Agama yang\n"
                "4.3.1\nTable Dianut, 2022\nPopulation By Subdistrict and Religion, 2022\n")
 SAMBAS_ROWS = [
-    ["Kecamatan\nSubdistrict", "Islam", "Protestan\nProtestant", "Katolik\nCatholic", "dHindu\ni", "Budha\nBuddha", "Lainnya\nOthers"],
+    ["Kecamatan\nSubdistrict", "Islam", "Protestan\nProtestant", "Katolik\nCatholic", "d\nHindu\ni", "Budha\nBuddha", "Lainnya\nOthers"],
     ["(1)", "(2)", "(3)", "(4)", ". o (5)", "(6)", "(7)"],
     ["Selakau", "33 657", "198", "g 122", "-", "4 105", "278"],
     ["Pemangkat", "39 416", "696b", "p 925", "6", "9 866", "1 906"],
@@ -37,7 +37,8 @@ def test_parse_sambas_table():
     d = da.parse_rows(SAMBAS_ROWS, SAMBAS_TEXT, "da:6101:x", "61", "6101", 2023)
     tot = d[d.level != "kecamatan"].set_index("religion")["count"]
     assert d["year"].iloc[0] == 2022 and tot["islam"] == 567092 and tot["lainnya"] == 3071 and tot["buddha"] == 39870
-    assert "konghucu" not in tot.index
+    assert "konghucu" not in tot.index and tot["hindu"] == 173
+    assert da.header_map(["Kecamatan", "dHindu i", "Budha\nBuddha"]) == [(1, "hindu"), (2, "buddha")]
     assert set(d[d.level == "kecamatan"]["unit_name"]) == {"Selakau", "Pemangkat", "Sebawi"}
     assert d[(d.unit_name == "Pemangkat") & (d.religion == "kristen")]["count"].iloc[0] == 696
     assert d[d.level == "kecamatan"]["unit_code"].isna().all() and (d[d.level != "kecamatan"]["unit_code"] == "6101").all()

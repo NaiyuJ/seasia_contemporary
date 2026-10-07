@@ -56,9 +56,18 @@ def clean_label(cell: object) -> str:
 
 
 def header_map(row: List[object]) -> List[Tuple[int, str]]:
+    """Column -> religion from a header cell such as 'Protestan\nProtestant' or, with
+    watermark letters, 'd\nHindu\ni' / 'dHindu i': the first line that names a
+    religion wins, after dropping lone letters."""
     out = []
     for j, c in enumerate(row):
-        rel = canonical_religion(str(c or "").split("\n")[0])
+        rel = None
+        for line in str(c or "").split("\n"):
+            line = " ".join(t for t in line.split() if len(t) >= 2)
+            line = re.sub(r"^[a-z](?=[A-Z])", "", line)  # 'dHindu' -> 'Hindu'
+            rel = canonical_religion(line)
+            if rel:
+                break
         if rel and rel != "total":
             out.append((j, rel))
     return out
