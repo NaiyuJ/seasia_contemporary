@@ -13,7 +13,7 @@ def _out(path):
     return path
 import requests
 
-from . import arcgis, bps_api, harmonize, pdf_tables, population
+from . import arcgis, bps_api, dalam_angka, harmonize, pdf_tables, population
 from .religion import LONG_COLUMNS
 
 
@@ -271,6 +271,25 @@ def cmd_bps_publications(a):
                 print(f"  {dest}: FAILED {type(e).__name__}: {str(e)[:80]}")
 
 
+def cmd_dalam_angka_extract(a):
+    """Religion tables out of 'Dalam Angka' PDFs (from bps-publications --download)."""
+    parts = []
+    for p in a.pdfs:
+        try:
+            d = dalam_angka.extract_book(p)
+            if len(d):
+                parts.append(d)
+        except Exception as e:  # noqa: BLE001
+            print(f"  {p}: FAILED {type(e).__name__}: {str(e)[:100]}")
+    df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS + ["level"])
+    df.to_csv(_out(a.out), index=False)
+    kab = df[df["level"] != "kecamatan"]
+    print(f"{len(df)} rows ({len(kab)} kabupaten/kota-level) from {df['ref'].nunique()} books -> {a.out}")
+    if len(kab):
+        print(kab.pivot_table(index=["unit_code", "unit_name", "year"], columns="religion", values="count",
+                              aggfunc="first").to_string())
+
+
 def cmd_bps_population(a):
     """Find and fetch each province's official population-by-kabupaten series."""
     key = bps_api.get_key()
@@ -451,6 +470,11 @@ def build_parser():
     pb.add_argument("--download", default=None, help="directory to download the PDFs into, e.g. data/raw/pubs")
     pb.add_argument("--out", default="data/konghucu/bps_publications.csv")
     pb.set_defaults(func=cmd_bps_publications)
+
+    da = sp.add_parser("dalam-angka-extract", help="religion tables out of 'Dalam Angka' PDF yearbooks")
+    da.add_argument("pdfs", nargs="+")
+    da.add_argument("--out", default="data/konghucu/dalam_angka_long.csv")
+    da.set_defaults(func=cmd_dalam_angka_extract)
 
     pp = sp.add_parser("bps-population", help="official population by kabupaten/kota from BPS dynamic tables")
     pp.add_argument("--provinces", nargs="*", help="2-digit province codes; default all")

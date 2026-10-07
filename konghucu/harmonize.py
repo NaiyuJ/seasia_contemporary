@@ -141,10 +141,10 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
                 drop_cells: Optional[pd.DataFrame] = None, population: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """unit x year (x semester) wide table with one column per religion, plus
     konghucu share. When several sources cover the same cell, `prefer` orders them
-    (default: arcgis, pdf, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
+    (default: arcgis, pdf, pdf_da, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
     the Excel-exported static ones, and a labelled total beats a sum of kecamatan).
     semester is 0 when the source is annual."""
-    prefer = prefer or ["arcgis", "pdf", "bpsvar", "bps", "bps_kabsum"]
+    prefer = prefer or ["arcgis", "pdf", "pdf_da", "bpsvar", "bps", "bps_kabsum"]
     bad = BAD_REFS | set(exclude_refs or ())
     df = long[long["unit_code"].notna() & long["count"].notna() & ~long["ref"].isin(bad)].copy()
     if "level" in df.columns:

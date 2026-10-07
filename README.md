@@ -101,6 +101,7 @@ python -m konghucu.cli pdf-extract data/raw/dukcapil/*.pdf --province-code 61
 python -m konghucu.cli bps-population                    # official population by kabupaten (denominator + sanity anchor)
 python -m konghucu.cli bps-publications --domains 6101 6102 6172 --years 2022 2023 --download data/raw/pubs
                                                          # 'Dalam Angka' PDFs for kabupaten whose religion table is not in the API
+python -m konghucu.cli dalam-angka-extract data/raw/pubs/*.pdf   # -> data/konghucu/dalam_angka_long.csv (add to harmonize --inputs)
 python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
        --inputs data/konghucu/bps_long.csv data/konghucu/arcgis_long.csv data/konghucu/pdf_long.csv
 # harmonize also writes konghucu_breaks.csv (source-definition switches) and total_outliers.csv

@@ -46,6 +46,12 @@
 - 东爪哇、日惹大多数县级表没有孔教列，孔教并在 Lainnya 里。这些县只能把 Lainnya 当上界。
 - 县级表的总计行标签不统一（Jumlah、县名、年份、或没有），识别顺序是：Jumlah 标签，等于其他行之和，县名且明显最大，最后加总 kecamatan（source 记为 bps_kabsum）。
 
+## 西加里曼丹：年鉴 PDF
+
+Sambas（6101）、Bengkayang（6102）、Singkawang（6172）的宗教表不在 API 里，只在每年的《Kabupaten/Kota X Dalam Angka》PDF 里（第 4.3 节"Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut"，来源写明是当地 Dukcapil）。流程：`bps-publications --domains 6101 6102 6172 --years 2022 2023 2024 --download data/raw/pubs` 下载县级年鉴（默认只取县/市级的书，不取 kecamatan 小册子），`dalam-angka-extract data/raw/pubs/*.pdf` 找到宗教表并解析成长表（source 记为 `pdf_da`，ref 为 `da:<domain>:<pub_id>`），再把 `dalam_angka_long.csv` 加进 `harmonize --inputs`。年鉴标题年份减一才是数据年份（2024 年的书登的是 2023 年的数），解析时以表题里的年份为准。
+
+两个坑：PDF 上有对角线水印（BPS 网址），字母会漏进数字格（"4i1" 是 41，"30b.040" 是 30 040），解析时只取数字；Sambas 和 Bengkayang 的表没有孔教列，孔教并在 Lainnya 里，只有 Singkawang 单列（2023 年 2,316 人）。前两个县的孔教人数只能用 Lainnya 当上界。
+
 ## 官方人口作为锚
 
 `bps-population` 在每个省域里找标题是"Jumlah Penduduk Menurut Kabupaten/Kota"一类的动态变量（排除按年龄、贫困、就业、kecamatan 分的；按性别分的用它的 Jumlah 类别，只有男女两类的相加）。没找到候选的省会把标题含 penduduk 的变量列出来，人工挑了用 `--var-ids` 传入，抓全部年份，同一县年若有几个序列，以该省覆盖县年最多的序列为主，其他序列只补它没有的县年（取中位数会把 2014 年的劳动力人口和总人口平均掉），超出县级合理范围（3 千到 700 万）的值忽略，输出 `data/konghucu/population.csv`（unit_code, year, population, n_refs, spread）。`harmonize` 默认读取它，面板里加 `population`、`total_to_pop`、`konghucu_share_pop`。
