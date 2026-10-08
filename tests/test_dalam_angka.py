@@ -57,3 +57,31 @@ def test_page_score_prefers_population_table_over_places_of_worship():
     pop = "Tabel Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut, 2022\nIslam Protestan Katolik Hindu Budha Lainnya"
     worship = "Tabel Jumlah Rumah Ibadah Menurut Jenis Agama\nIslam Katholik Kristen Budha Hindu Konghucu\nMasjid Gereja"
     assert da.page_score(pop) > da.page_score(worship)
+
+
+def test_total_row_found_by_sum_not_by_name():
+    rows = [
+        ["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+        ["Kota Soe", "150", "34.620", "3.752", "7.902", "0", "0"],
+        ["Mollo Utara", "20", "30.000", "2.000", "100", "0", "1"],
+        ["Timor Tengah Selatan", "170", "64.620", "5.752", "8.002", "0", "1"],   # the total, no prefix
+    ]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:5303:x", "53", "5303", 2024)
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Timor Tengah Selatan"} and tot.set_index("religion")["count"]["kristen"] == 64620
+    assert set(d[d.level == "kecamatan"].unit_name) == {"Kota Soe", "Mollo Utara"}
+    assert (tot.level == "kabupaten").all()
+
+
+def test_total_row_name_is_cleaned():
+    rows = [
+        ["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+        ["Kota Lama", "100", "200", "50", "1", "0", "0"],
+        ["Kota Raja", "100", "200", "50", "1", "0", "0"],
+        ["Kota Kupang Kupang Municipality", "200", "400", "100", "2", "0", "0"],
+    ]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:5371:x", "53", "5371", 2024)
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Kota Kupang"} and (tot.level == "kota").all()
+    assert da.clean_unit_name("Kota Bitung/ Bitung Municipality") == "Kota Bitung"
+    assert da.clean_unit_name("Kabupaten Rote Ndao Rote Ndao Regency") == "Kabupaten Rote Ndao"

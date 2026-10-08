@@ -81,11 +81,45 @@ def year_from_title(text: str, fallback: Optional[int]) -> Optional[int]:
     return int(m.group(1)) if m else fallback
 
 
+def clean_unit_name(name: str) -> str:
+    """'Kota Kupang Kupang Municipality' / 'Kota Bitung/ Bitung Municipality' -> 'Kota Kupang'."""
+    s = name.split("/")[0].strip()
+    toks = re.sub(r"(?i)\s+(regency|municipality|city|district)$", "", s).split()
+    # the English rendering repeats the name: 'Kabupaten Rote Ndao Rote Ndao' -> drop the echo
+    while len(toks) > 2 and toks[-1].lower() in [t.lower() for t in toks[:-1]]:
+        toks.pop()
+    return " ".join(toks)
+
+
+def total_row_index(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: int) -> Optional[int]:
+    """The kabupaten/kota total row: the data row whose values equal the sum of all the
+    other data rows (within 2%) on the largest column; else a trailing row labelled
+    Kabupaten/Kota/Kab.; else None. Needed because kecamatan are often named 'Kota X'
+    ('Kota Soe', 'Kota Lama', 'Kotamobagu Barat') and some books print the total row
+    without a prefix ('Kotawaringin Timur')."""
+    data = [(i, r) for i, r in enumerate(rows) if i > hdr and r and clean_label(r[0])
+            and not re.fullmatch(r"\(?\d\)?", clean_label(r[0]))]
+    if len(data) < 2:
+        return None
+    j = max(cols, key=lambda c: sum(clean_number(r[c[0]]) or 0 for _, r in data if c[0] < len(r)))[0]
+    vals = [(i, clean_number(r[j]) if j < len(r) else None) for i, r in data]
+    for i, v in vals:
+        if not v:
+            continue
+        rest = sum(w for k, w in vals if k != i and w)
+        if rest and abs(v - rest) / v <= 0.02:
+            return i
+    for i, r in reversed(data):
+        if re.match(r"(?i)^(kabupaten|kota|kab\.?)\s", clean_label(r[0])):
+            return i
+    return None
+
+
 def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str, unit_code: Optional[str],
                book_year: Optional[int]) -> pd.DataFrame:
     """One extracted table (list of rows) -> long rows. Needs a header row with >= 3
-    religions and a total row labelled Kabupaten/Kota ...; kecamatan rows are kept
-    with level='kecamatan'."""
+    religions; the total row (see total_row_index) becomes the kabupaten/kota, every
+    other row a kecamatan."""
     hdr = None
     for i, r in enumerate(rows):
         if len(header_map(r)) >= 3:
@@ -94,16 +128,23 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
     if hdr is None:
         return pd.DataFrame(columns=LONG_COLUMNS + ["level"])
     year = year_from_title(text, book_year - 1 if book_year else None)
+    tot_i = total_row_index(rows, cols, hdr)
     out = []
-    for r in rows[hdr + 1:]:
+    for i, r in enumerate(rows):
+        if i <= hdr:
+            continue
         name = clean_label(r[0] if r else "")
         if not name or re.fullmatch(r"\(?\d\)?", name):
             continue
         vals = [(rel, clean_number(r[j]) if j < len(r) else None) for j, rel in cols]
         if all(v is None for _, v in vals):
             continue
-        lvl = unit_level(name)
-        if lvl == "unknown":
+        if i == tot_i:
+            name = clean_unit_name(name)
+            lvl = unit_level(name)
+            if lvl == "unknown":
+                lvl = "kota" if unit_code and unit_code[2] == "7" else "kabupaten"
+        else:
             lvl = "kecamatan"
         for rel, v in vals:
             out.append({"source": "pdf_da", "province_code": province_code,
