@@ -142,7 +142,21 @@ def test_percent_table_is_skipped():
             ["4. Sungai Aur", "7,7433", "0,0276", "0,0345", "0,0002", "0 ,0021", "_"],
             ["Pasaman Barat", "99,6196", "0,1312", "0,2418", "0,0002", "0,0021", "0,0145"]]
     d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:1312:x", "13", "1312", 2024)
-    assert d.empty and d.attrs.get("percent")
+    assert d.attrs.get("percent") and (d.source == "pdf_da_pct").all()
+    tot = d[d.level != "kecamatan"].set_index("religion")["count"]
+    assert abs(tot["islam"] - 99.6196) < 1e-9 and abs(tot["hindu"] - 0.0002) < 1e-9 and abs(tot["lainnya"] - 0.0145) < 1e-9
+    aur = d[d.unit_name == "Sungai Aur"].set_index("religion")["count"]
+    assert abs(aur["buddha"] - 0.0021) < 1e-9 and aur["lainnya"] == 0
+
+
+def test_percent_table_with_year_rows_takes_the_first_year():
+    rows = [["Kecamatan", "", "Islam", "Protestant", "Katolik", "Hindu", "Budha", "Lainnya"],
+            ["1. Kamang Baru", "", "22,09", "0,22", "0,09", "–", "–", "–"],
+            ["Sijunjung", "2023", "99,53", "0,40", "0,09", "–", "–", "–"],
+            ["", "2022", "99,65", "0,30", "0,05", "–", "–", "–"]]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:1304:x", "13", "1304", 2024)
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Sijunjung"} and abs(tot.set_index("religion")["count"]["islam"] - 99.53) < 1e-9
 
 
 def test_total_row_from_book_name_hint():

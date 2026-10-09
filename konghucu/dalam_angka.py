@@ -145,12 +145,9 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
             break
     if hdr is None:
         return pd.DataFrame(columns=LONG_COLUMNS + ["level"])
-    if is_percent_table(rows, cols, hdr):
-        df = pd.DataFrame(columns=LONG_COLUMNS + ["level"])
-        df.attrs["percent"] = True
-        return df
+    percent = is_percent_table(rows, cols, hdr)
     year = year_from_title(text, book_year - 1 if book_year else None)
-    tot_i = total_row_index(rows, cols, hdr, unit_hint)
+    tot_i = total_row_index(rows, cols, hdr, unit_hint) if not percent else _percent_total_row(rows, cols, hdr)
     out = []
     for i, r in enumerate(rows):
         if i <= hdr:
@@ -158,7 +155,8 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
         name = clean_label(r[0] if r else "")
         if not name or re.fullmatch(r"\(?\d\)?", name):
             continue
-        vals = [(rel, clean_number(r[j]) if j < len(r) else None) for j, rel in cols]
+        num = percent_number if percent else clean_number
+        vals = [(rel, num(r[j]) if j < len(r) else None) for j, rel in cols]
         if all(v is None for _, v in vals):
             continue
         if i == tot_i:
@@ -169,12 +167,43 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
         else:
             lvl = "kecamatan"
         for rel, v in vals:
-            out.append({"source": "pdf_da", "province_code": province_code,
+            out.append({"source": "pdf_da_pct" if percent else "pdf_da", "province_code": province_code,
                         "unit_code": unit_code if lvl != "kecamatan" else None, "unit_name": name,
                         "year": year, "semester": None, "religion": rel, "count": v, "ref": ref, "level": lvl})
     df = pd.DataFrame(out, columns=LONG_COLUMNS + ["level"])
     df["unit_name_norm"] = df["unit_name"].map(norm_unit_name)
+    df.attrs["percent"] = percent
     return df
+
+
+def percent_number(cell: object) -> Optional[float]:
+    """'6,4390' -> 6.439; '0 ,0021' -> 0.0021; '_' / '-' -> 0; watermark letters dropped."""
+    if cell is None:
+        return None
+    s = re.sub(r"[^\d,.\-–_]", "", str(cell))
+    if not s:
+        return None
+    if re.fullmatch(r"[\-–_.]+", s):
+        return 0.0
+    m = re.search(r"(\d{1,3})\s*,\s*(\d{1,4})", s)
+    if m:
+        return float(f"{m.group(1)}.{m.group(2)}")
+    digits = re.sub(r"\D", "", s)
+    return float(digits) if digits else None
+
+
+def _percent_total_row(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: int) -> Optional[int]:
+    """In a percentage table the total row is the first row (not a numbered kecamatan)
+    whose religions add up to about 100; a table printed with several year rows
+    (Sijunjung: 2023, 2022, ...) yields the current year's."""
+    data = [(i, r) for i, r in enumerate(rows) if i > hdr and r and clean_label(r[0])
+            and not re.fullmatch(r"\(?\d\)?", clean_label(r[0]))]
+    for i, r in data:
+        vals = [percent_number(r[j]) for j, _ in cols if j < len(r)]
+        tot = sum(v for v in vals if v)
+        if 95 <= tot <= 105 and not re.match(r"(?i)^\d+\.?\s", str(r[0] or "")):
+            return i
+    return None
 
 
 def _group_lines(words: List[dict], tol: float = 3.0) -> List[List[dict]]:
@@ -307,10 +336,17 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
             rows += _data_rows(max(cont, key=len))
             pages_used.append(nxt)
         df = parse_rows(rows, texts[best_i], ref, domain[:2] if domain else "", domain, book_year, unit_hint)
-    if df.attrs.get("percent"):
-        return done(empty, "percent", f"page {best_i}: the table is percentages, not counts")
     if df.empty:
         return done(empty, "unparsed", f"page {best_i} looks right but no table parsed")
+    if df.attrs.get("percent"):
+        tot = df[df["level"] != "kecamatan"]
+        if tot.empty:
+            return done(empty, "no_total", f"page {best_i}: percentage table without a row adding to 100")
+        k = tot[tot["religion"] == "konghucu"]["count"]
+        df.attrs["status"] = "ok_percent"
+        log(f"  {path.name}: page {best_i} year={df['year'].iloc[0]} {tot['unit_name'].iloc[0]} PERCENT table "
+            f"(converted with the population in harmonize) konghucu={k.iloc[0] if len(k) else 'in Lainnya'}%")
+        return df
     tot = df[df["level"] != "kecamatan"]
     if tot.empty:
         return done(empty, "no_total", f"pages {pages_used}: no total row equal to the sum of the "

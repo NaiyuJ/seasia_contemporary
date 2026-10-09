@@ -718,3 +718,18 @@ def test_sub_kabupaten_table_dropped_against_population():
     panel = harmonize.build_panel(long, population=pop)
     # 2016: sub-kecamatan table; 2020: twice the population (Kemenag or a province row); 2019 at 0.6x is kept
     assert list(panel["year"]) == [2018, 2019]
+
+
+def test_percentage_cells_become_counts_through_the_population():
+    rows = []
+    for rel, v in [("islam", 99.5), ("kristen", 0.3), ("katolik", 0.1), ("hindu", 0.0), ("buddha", 0.05), ("konghucu", 0.05)]:
+        rows.append(dict(source="pdf_da_pct", province_code="13", unit_code="1312", unit_name="Pasaman Barat", level="kabupaten",
+                         religion=rel, year=2023, semester=None, count=v, ref="da:1312:x"))
+        rows.append(dict(source="pdf_da_pct", province_code="13", unit_code="1313", unit_name="Nowhere", level="kabupaten",
+                         religion=rel, year=2023, semester=None, count=v, ref="da:1313:x"))
+    pop = pd.DataFrame({"unit_code": ["1312"], "year": [2023], "population": [400000]})
+    panel = harmonize.build_panel(pd.DataFrame(rows), population=pop)
+    assert list(panel["unit_code"]) == ["1312"]  # 1313 has no population: dropped
+    r = panel.iloc[0]
+    assert r["islam"] == 398000 and r["konghucu"] == 200 and abs(r["konghucu_share_pop"] - 0.0005) < 1e-9
+    assert r["total_to_pop"] == 1.0

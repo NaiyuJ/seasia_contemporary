@@ -144,7 +144,7 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     (default: arcgis, pdf, pdf_da, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
     the Excel-exported static ones, and a labelled total beats a sum of kecamatan).
     semester is 0 when the source is annual."""
-    prefer = prefer or ["arcgis", "pdf", "pdf_da", "bpsvar", "bps", "bps_kabsum"]
+    prefer = prefer or ["arcgis", "pdf", "pdf_da", "bpsvar", "bps", "bps_kabsum", "pdf_da_pct"]
     bad = BAD_REFS | set(exclude_refs or ())
     df = long[long["unit_code"].notna() & long["count"].notna() & ~long["ref"].isin(bad)].copy()
     if "level" in df.columns:
@@ -182,6 +182,26 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     wide = wide.merge(kref.reset_index(), on=["unit_code", "year", "semester"], how="left")
     ref = df.groupby(["unit_code", "year", "semester"])["ref"].first().rename("ref")
     wide = wide.merge(ref.reset_index(), on=["unit_code", "year", "semester"], how="left")
+    pop = None
+    if population is not None and len(population):
+        pop = population[["unit_code", "year", "population"]].copy()
+        pop["unit_code"] = pop["unit_code"].astype(str).str.zfill(4)
+        pop["year"] = pop["year"].astype(int)
+        wide = wide.merge(pop, on=["unit_code", "year"], how="left")
+        # percentage tables (source pdf_da_pct: 'Persentase Penduduk Menurut Agama') become
+        # counts through the official population; without one they are unusable
+        pct = wide["sources"].eq("pdf_da_pct")
+        rel_cols = [c for c in RELIGIONS if c in wide.columns]
+        have = pct & wide["population"].notna()
+        for c in rel_cols:
+            wide.loc[have, c] = (wide.loc[have, c] / 100 * wide.loc[have, "population"]).round()
+        if "total" in wide.columns:
+            wide.loc[have, "total"] = float("nan")
+        if (pct & ~have).any():
+            print(f"build_panel: dropping {int((pct & ~have).sum())} percentage-table cells with no official population")
+        wide = wide[~(pct & ~have)].copy()
+        if have.any():
+            print(f"build_panel: {int(have.sum())} percentage-table cells converted to counts via the population")
     wide["quality"] = cell_quality(wide)
     bad_q = wide["quality"].isin(["percent", "placeholder", "no_religions"])
     if bad_q.any():
@@ -202,11 +222,7 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     wide["total_is_sum"] = wide["total"].notna() & wide["total"].eq(summed)
     if "konghucu" in wide.columns:
         wide["konghucu_share"] = wide["konghucu"] / wide["total"]
-    if population is not None and len(population):
-        pop = population[["unit_code", "year", "population"]].copy()
-        pop["unit_code"] = pop["unit_code"].astype(str).str.zfill(4)
-        pop["year"] = pop["year"].astype(int)
-        wide = wide.merge(pop, on=["unit_code", "year"], how="left")
+    if pop is not None:
         wide["total_to_pop"] = wide["total"] / wide["population"]
         # a table from a kabupaten domain whose total is under 30% of the official population
         # is a single-kecamatan table published without the kecamatan name (Jombang has several)
