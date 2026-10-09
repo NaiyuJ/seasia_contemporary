@@ -291,8 +291,8 @@ def cmd_dalam_angka_extract(a):
     for p in a.pdfs:
         stem = Path(p).stem
         title = titles.get(stem, "")
-        if re.match(r"(?i)^(kecamatan|distrik)\b", title):
-            continue  # per-kecamatan booklet: its religion table is by desa, not what the panel needs
+        if re.match(r"(?i)^(kecamatan|distrik|kapanewon|kemantren)\b", title) or re.search(r"(?i)infografis", title):
+            continue  # per-kecamatan booklet or infographic, not the yearbook
         try:
             d = dalam_angka.extract_book(p)
             status.append((stem, d.attrs.get("status", "?"), title))
@@ -490,7 +490,7 @@ def build_parser():
     pb.add_argument("--domains", nargs="+", required=True, help="BPS domain ids, e.g. 6101 6102 6172")
     pb.add_argument("--keyword", default="dalam angka")
     pb.add_argument("--years", nargs="*", help="keep titles containing any of these years")
-    pb.add_argument("--title-regex", default=r"^(?!Kecamatan|Distrik|Statistik|Indikator|Analisis)",
+    pb.add_argument("--title-regex", default=r"^(?!Kecamatan|Distrik|Kapanewon|Kemantren|Statistik|Indikator|Analisis)(?!.*[Ii]nfografis)",
                     help="keep titles matching this (default: drop the per-kecamatan/distrik booklets and side "
                          "publications; some BPS offices title the book 'Aceh Besar Dalam Angka' without 'Kabupaten'); '' for all")
     pb.add_argument("--download", default=None, help="directory to download the PDFs into, e.g. data/raw/pubs")

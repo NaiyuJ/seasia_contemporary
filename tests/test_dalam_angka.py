@@ -134,3 +134,23 @@ def test_split_table_total_found_after_joining_pages():
     tot = d[d.level != "kecamatan"]
     assert set(tot.unit_name) == {"Kabupaten Kupang"} and tot.set_index("religion")["count"]["kristen"] == 57088
     assert set(d[d.level == "kecamatan"].unit_name) == {"Semau", "Kupang Barat", "Takari"}
+
+
+def test_percent_table_is_skipped():
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+            ["1. Sungai Beremas", "6,4390", "_", "_", "_", "_", "_"],
+            ["4. Sungai Aur", "7,7433", "0,0276", "0,0345", "0,0002", "0 ,0021", "_"],
+            ["Pasaman Barat", "99,6196", "0,1312", "0,2418", "0,0002", "0,0021", "0,0145"]]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:1312:x", "13", "1312", 2024)
+    assert d.empty and d.attrs.get("percent")
+
+
+def test_total_row_from_book_name_hint():
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+            ["Banda", "7.145", "28", "2", "-", "2", "4"],
+            ["Tehoru", "5.762", "1.255", "16", "54", "-", "-"],
+            ["Maluku Tengah", "84.646", "46.733", "1.014", "610", "7", "4"]]  # total is not the sum: a partial table
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:8103:x", "81", "8103", 2024, unit_hint="Maluku Tengah")
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Maluku Tengah"} and (tot.level == "kabupaten").all()
+    assert da.parse_rows(rows, "x, 2023", "r", "81", "8103", 2024)[lambda x: x.level != "kecamatan"].empty

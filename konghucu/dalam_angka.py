@@ -47,6 +47,18 @@ def clean_number(cell: object) -> Optional[float]:
     return float(digits) if digits else None
 
 
+PERCENT_CELL = re.compile(r"^[^\d]*\d{1,3}\s*,\s*\d{1,4}[^\d]*$")
+
+
+def is_percent_table(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: int) -> bool:
+    """True when most numeric cells are decimals with a comma ('6,4390', '22,09'): a
+    'Persentase Penduduk Menurut Agama' table, not counts."""
+    cells = [str(r[j]) for r in rows[hdr + 1:] for j, _ in cols if j < len(r) and r[j] and re.search(r"\d", str(r[j]))]
+    if len(cells) < 4:
+        return False
+    return sum(bool(PERCENT_CELL.match(c.strip())) for c in cells) >= len(cells) / 2
+
+
 def clean_label(cell: object) -> str:
     """'a s Sebawi' -> 'Sebawi'; '1. Sungai Raya' -> 'Sungai Raya'; drop lone watermark letters."""
     s = re.sub(r"\s+", " ", str(cell or "").replace("\n", " ")).strip()
@@ -91,7 +103,8 @@ def clean_unit_name(name: str) -> str:
     return " ".join(toks)
 
 
-def total_row_index(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: int) -> Optional[int]:
+def total_row_index(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: int,
+                    unit_hint: Optional[str] = None) -> Optional[int]:
     """The kabupaten/kota total row: the data row whose values equal the sum of all the
     other data rows (within 2%) on the largest column; else a trailing row labelled
     Kabupaten/Kota/Kab.; else None. Needed because kecamatan are often named 'Kota X'
@@ -112,11 +125,16 @@ def total_row_index(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: 
     for i, r in reversed(data):
         if re.match(r"(?i)^(kabupaten|kota|kab\.?)\s", clean_label(r[0])):
             return i
+    if unit_hint:  # a trailing row named like the book ('Pasaman Barat' in 'Kabupaten Pasaman Barat Dalam Angka')
+        key = norm_label(unit_hint).replace(" ", "")
+        for i, r in reversed(data):
+            if key and key in norm_label(clean_unit_name(clean_label(r[0]))).replace(" ", ""):
+                return i
     return None
 
 
 def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str, unit_code: Optional[str],
-               book_year: Optional[int]) -> pd.DataFrame:
+               book_year: Optional[int], unit_hint: Optional[str] = None) -> pd.DataFrame:
     """One extracted table (list of rows) -> long rows. Needs a header row with >= 3
     religions; the total row (see total_row_index) becomes the kabupaten/kota, every
     other row a kecamatan."""
@@ -127,8 +145,12 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
             break
     if hdr is None:
         return pd.DataFrame(columns=LONG_COLUMNS + ["level"])
+    if is_percent_table(rows, cols, hdr):
+        df = pd.DataFrame(columns=LONG_COLUMNS + ["level"])
+        df.attrs["percent"] = True
+        return df
     year = year_from_title(text, book_year - 1 if book_year else None)
-    tot_i = total_row_index(rows, cols, hdr)
+    tot_i = total_row_index(rows, cols, hdr, unit_hint)
     out = []
     for i, r in enumerate(rows):
         if i <= hdr:
@@ -248,6 +270,11 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
         if book_year is None:
             ym = re.search(r"(?i)dalam angka\s*(20\d\d)", head) or re.search(r"\b(20\d\d)\b", head)
             book_year = int(ym.group(1)) if ym else None
+        hm = re.search(r"(?i)\b(kecamatan|distrik|kapanewon|kemantren)\s+[A-Za-z' ]{2,40}?\s+dalam angka", head)
+        if hm:
+            return done(empty, "booklet", f"per-{hm.group(1).lower()} booklet, skipped")
+        um = re.search(r"(?i)\b(kabupaten|kota|kab\.?)\s+([A-Za-z' ]{2,40}?)\s+dalam angka", head)
+        unit_hint = um.group(2).strip() if um else None
         best, best_i, texts, any_text = -99, None, {}, False
         for i, page in enumerate(pdf.pages):
             t = page.extract_text() or ""
@@ -271,7 +298,7 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
         pages_used = [best_i]
         # continued on the next page(s): no total row yet, and the next page has the same columns
         for nxt in (best_i + 1, best_i + 2):
-            if total_row_index(rows, header_map(hdr), 0) is not None or nxt >= len(pdf.pages):
+            if total_row_index(rows, header_map(hdr), 0, unit_hint) is not None or nxt >= len(pdf.pages):
                 break
             cont = [t for t in religion_tables(pdf.pages[nxt])
                     if [r for _, r in header_map(next(x for x in t if len(header_map(x)) >= 3))] == [r for _, r in header_map(hdr)]]
@@ -279,7 +306,9 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
                 break
             rows += _data_rows(max(cont, key=len))
             pages_used.append(nxt)
-        df = parse_rows(rows, texts[best_i], ref, domain[:2] if domain else "", domain, book_year)
+        df = parse_rows(rows, texts[best_i], ref, domain[:2] if domain else "", domain, book_year, unit_hint)
+    if df.attrs.get("percent"):
+        return done(empty, "percent", f"page {best_i}: the table is percentages, not counts")
     if df.empty:
         return done(empty, "unparsed", f"page {best_i} looks right but no table parsed")
     tot = df[df["level"] != "kecamatan"]
