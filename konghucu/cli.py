@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -282,21 +283,36 @@ def cmd_bps_publications(a):
 
 def cmd_dalam_angka_extract(a):
     """Religion tables out of 'Dalam Angka' PDFs (from bps-publications --download)."""
-    parts = []
+    parts, status = [], []
+    titles = {}
+    if Path(a.catalogue).exists():
+        cat = pd.read_csv(a.catalogue, dtype=str)
+        titles = dict(zip(cat["domain"] + "_" + cat["pub_id"], cat["title"]))
     for p in a.pdfs:
+        stem = Path(p).stem
+        title = titles.get(stem, "")
+        if re.match(r"(?i)^(kecamatan|distrik)\b", title):
+            continue  # per-kecamatan booklet: its religion table is by desa, not what the panel needs
         try:
             d = dalam_angka.extract_book(p)
+            status.append((stem, d.attrs.get("status", "?"), title))
             if len(d):
                 parts.append(d)
         except Exception as e:  # noqa: BLE001
             print(f"  {p}: FAILED {type(e).__name__}: {str(e)[:100]}")
+            status.append((stem, "error", title))
     df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS + ["level"])
     df.to_csv(_out(a.out), index=False)
     kab = df[df["level"] != "kecamatan"]
     print(f"{len(df)} rows ({len(kab)} kabupaten/kota-level) from {df['ref'].nunique()} books -> {a.out}")
-    if len(kab):
-        print(kab.pivot_table(index=["unit_code", "unit_name", "year"], columns="religion", values="count",
-                              aggfunc="first").to_string())
+    st = pd.DataFrame(status, columns=["book", "status", "title"])
+    print("books by outcome:")
+    print(st["status"].value_counts().to_string())
+    bad = st[st["status"] != "ok"]
+    if len(bad):
+        print("books without a usable table (domain, outcome, title):")
+        for r in bad.itertuples(index=False):
+            print(f"  {r.book[:4]} {r.status:9s} {str(r.title)[:60]}")
 
 
 def cmd_bps_population(a):
@@ -484,6 +500,8 @@ def build_parser():
     da = sp.add_parser("dalam-angka-extract", help="religion tables out of 'Dalam Angka' PDF yearbooks")
     da.add_argument("pdfs", nargs="+")
     da.add_argument("--out", default="data/konghucu/dalam_angka_long.csv")
+    da.add_argument("--catalogue", default="data/konghucu/bps_publications.csv",
+                    help="bps-publications output, used to skip per-kecamatan booklets and name failures")
     da.set_defaults(func=cmd_dalam_angka_extract)
 
     pp = sp.add_parser("bps-population", help="official population by kabupaten/kota from BPS dynamic tables")

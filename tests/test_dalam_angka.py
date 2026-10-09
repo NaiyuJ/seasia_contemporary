@@ -85,3 +85,52 @@ def test_total_row_name_is_cleaned():
     assert set(tot.unit_name) == {"Kota Kupang"} and (tot.level == "kota").all()
     assert da.clean_unit_name("Kota Bitung/ Bitung Municipality") == "Kota Bitung"
     assert da.clean_unit_name("Kabupaten Rote Ndao Rote Ndao Regency") == "Kabupaten Rote Ndao"
+
+
+class _FakePage:
+    """pdfplumber page stand-in: words with positions, no ruled table."""
+
+    def __init__(self, lines):
+        self.words = []
+        for top, items in lines:
+            for x0, text in items:
+                self.words.append({"text": text, "x0": x0, "x1": x0 + 6 * len(text), "top": top, "bottom": top + 8})
+
+    def extract_words(self):
+        return self.words
+
+    def extract_tables(self):
+        return []
+
+
+def test_rows_from_words_borderless_table():
+    page = _FakePage([
+        (100, [(40, "Kecamatan"), (200, "Islam"), (260, "Protestan"), (330, "Katolik"), (400, "Hindu"), (460, "Budha"), (520, "Lainnya")]),
+        (101, [(200, "(2)"), (260, "(3)")]),
+        (120, [(40, "Selakau"), (200, "33"), (215, "657"), (262, "198"), (330, "122"), (402, "-"), (460, "4"), (475, "105"), (522, "278")]),
+        (121, [(150, "b")]),  # watermark letter on its own
+        (140, [(40, "Kabupaten"), (90, "Sambas"), (196, "567"), (212, "092"), (258, "11"), (272, "867"), (326, "18"), (342, "505"), (400, "173"), (456, "39"), (472, "870"), (518, "3"), (532, "071")]),
+    ])
+    rows = da.rows_from_words(page)
+    assert rows[0] == ["Kecamatan", "islam", "kristen", "katolik", "hindu", "buddha", "lainnya"]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2022", "da:6101:x", "61", "6101", 2023)
+    tot = d[d.level != "kecamatan"].set_index("religion")["count"]
+    assert tot["islam"] == 567092 and tot["lainnya"] == 3071 and tot["hindu"] == 173
+    sel = d[d.unit_name == "Selakau"].set_index("religion")["count"]
+    assert sel["islam"] == 33657 and sel["buddha"] == 4105 and sel["hindu"] == 0
+    assert da.religion_tables(page) == [rows]
+
+
+def test_split_table_total_found_after_joining_pages():
+    hdr = ["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"]
+    page1 = [hdr, ["(1)", "(2)", "(3)", "(4)", "(5)", "(6)", "(7)"], ["01. Semau", "-", "11.175", "374", "-", "-", "-"],
+             ["02. Kupang Barat", "1.212", "26.714", "932", "-", "-", "-"]]
+    page2 = [hdr, ["03. Takari", "680", "19.199", "1.954", "-", "-", "-"],
+             ["Kabupaten Kupang", "1.892", "57.088", "3.260", "-", "-", "-"]]
+    rows = [hdr] + da._data_rows(page1)
+    assert da.total_row_index(rows, da.header_map(hdr), 0) is None
+    rows += da._data_rows(page2)
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:5301:x", "53", "5301", 2024)
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Kabupaten Kupang"} and tot.set_index("religion")["count"]["kristen"] == 57088
+    assert set(d[d.level == "kecamatan"].unit_name) == {"Semau", "Kupang Barat", "Takari"}
