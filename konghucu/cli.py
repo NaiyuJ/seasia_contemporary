@@ -294,7 +294,7 @@ def cmd_dalam_angka_extract(a):
         if re.match(r"(?i)^(kecamatan|distrik|kapanewon|kemantren)\b", title) or re.search(r"(?i)infografis", title):
             continue  # per-kecamatan booklet or infographic, not the yearbook
         try:
-            d = dalam_angka.extract_book(p)
+            d = dalam_angka.extract_book(p, debug=a.debug)
             status.append((stem, d.attrs.get("status", "?"), title))
             if len(d):
                 parts.append(d)
@@ -500,6 +500,7 @@ def build_parser():
     da = sp.add_parser("dalam-angka-extract", help="religion tables out of 'Dalam Angka' PDF yearbooks")
     da.add_argument("pdfs", nargs="+")
     da.add_argument("--out", default="data/konghucu/dalam_angka_long.csv")
+    da.add_argument("--debug", action="store_true", help="print how each book's table was read")
     da.add_argument("--catalogue", default="data/konghucu/bps_publications.csv",
                     help="bps-publications output, used to skip per-kecamatan booklets and name failures")
     da.set_defaults(func=cmd_dalam_angka_extract)

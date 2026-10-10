@@ -168,3 +168,25 @@ def test_total_row_from_book_name_hint():
     tot = d[d.level != "kecamatan"]
     assert set(tot.unit_name) == {"Maluku Tengah"} and (tot.level == "kabupaten").all()
     assert da.parse_rows(rows, "x, 2023", "r", "81", "8103", 2024)[lambda x: x.level != "kecamatan"].empty
+
+
+class _TablePage:
+    def __init__(self, tables, words=()):
+        self._tables, self._words = tables, list(words)
+
+    def extract_tables(self):
+        return self._tables
+
+    def extract_words(self):
+        return self._words
+
+
+def test_continuation_without_header_by_column_count():
+    hdr = ["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"]
+    nxt = _TablePage([[["Sunga Serut", "24.839", "704", "139", "11", "22", "-"],
+                       ["Kota Bengkulu", "356.038", "9.466", "2.865", "190", "1.245", "5"]],
+                      [["Sumber", "Kemenag"]]])
+    rows = da.continuation_rows(nxt, hdr)
+    assert [r[0] for r in rows] == ["Sunga Serut", "Kota Bengkulu"]
+    other = _TablePage([[["Partai", "Islam", "Katolik", "Kristen", "Hindu", "Budha"], ["PDI", "1", "-", "-", "-", "-"]]])
+    assert da.continuation_rows(other, hdr) == []  # different width and a header of its own

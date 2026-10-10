@@ -275,8 +275,27 @@ def _data_rows(tb: List[List[object]]) -> List[List[object]]:
     return []
 
 
+def continuation_rows(page, hdr: List[object]) -> List[List[object]]:
+    """Data rows of a table continued on `page`: a table there with the same religion
+    header, or, when the continuation is printed without a header, a table with the same
+    number of columns whose rows carry a label and figures."""
+    want = [r for _, r in header_map(hdr)]
+    with_header = [t for t in religion_tables(page)
+                   if [r for _, r in header_map(next(x for x in t if len(header_map(x)) >= 3))] == want]
+    if with_header:
+        return _data_rows(max(with_header, key=len))
+    same_width = []
+    for t in page.extract_tables() or []:
+        if not t or max(len(r) for r in t) != len(hdr):
+            continue
+        rows = [r for r in t if r and clean_label(r[0]) and any(re.search(r"\d", str(c or "")) for c in r[1:])
+                and not any(canonical_religion(str(c or "")) for c in r[1:])]
+        same_width += rows
+    return same_width
+
+
 def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optional[str] = None,
-                 book_year: Optional[int] = None, log=print) -> pd.DataFrame:
+                 book_year: Optional[int] = None, log=print, debug: bool = False) -> pd.DataFrame:
     """Find the religion table in one Dalam Angka PDF and return long rows. The domain
     (BPS 4-digit code) and pub_id default to the file name '<domain>_<pub_id>.pdf'.
     A table continued on the following page(s) is joined before the total row is
@@ -329,12 +348,19 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
         for nxt in (best_i + 1, best_i + 2):
             if total_row_index(rows, header_map(hdr), 0, unit_hint) is not None or nxt >= len(pdf.pages):
                 break
-            cont = [t for t in religion_tables(pdf.pages[nxt])
-                    if [r for _, r in header_map(next(x for x in t if len(header_map(x)) >= 3))] == [r for _, r in header_map(hdr)]]
-            if not cont:
+            more = continuation_rows(pdf.pages[nxt], hdr)
+            if not more:
                 break
-            rows += _data_rows(max(cont, key=len))
+            rows += more
             pages_used.append(nxt)
+        if debug:
+            log(f"  [debug] page {best_i} tables={len(tables)} header={[r for _, r in header_map(hdr)]} "
+                f"rows={len(rows) - 1} total_row={total_row_index(rows, header_map(hdr), 0, unit_hint)} "
+                f"hint={unit_hint!r} pages={pages_used}")
+            for r in rows[:6] + rows[-3:]:
+                log("    " + " | ".join(str(c).replace(chr(10), " ")[:16] for c in r))
+        if not any(re.search(r"\d", str(c or "")) for r in rows[1:] for c in r[1:]):
+            return done(empty, "no_numbers", f"page {best_i}: table found but its figures are not in the text layer")
         df = parse_rows(rows, texts[best_i], ref, domain[:2] if domain else "", domain, book_year, unit_hint)
     if df.empty:
         return done(empty, "unparsed", f"page {best_i} looks right but no table parsed")
