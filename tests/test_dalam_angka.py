@@ -167,7 +167,7 @@ def test_total_row_from_book_name_hint():
     d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:8103:x", "81", "8103", 2024, unit_hint="Maluku Tengah")
     tot = d[d.level != "kecamatan"]
     assert set(tot.unit_name) == {"Maluku Tengah"} and (tot.level == "kabupaten").all()
-    assert da.parse_rows(rows, "x, 2023", "r", "81", "8103", 2024)[lambda x: x.level != "kecamatan"].empty
+    assert da.parse_rows(rows, "x, 2023", "r", "81", "8103", 2024)[lambda x: x.level != "kecamatan"].empty  # no hint: nothing
 
 
 class _TablePage:
@@ -190,3 +190,49 @@ def test_continuation_without_header_by_column_count():
     assert [r[0] for r in rows] == ["Sunga Serut", "Kota Bengkulu"]
     other = _TablePage([[["Partai", "Islam", "Katolik", "Kristen", "Hindu", "Budha"], ["PDI", "1", "-", "-", "-", "-"]]])
     assert da.continuation_rows(other, hdr) == []  # different width and a header of its own
+
+
+def test_jumlah_total_row_and_toc_penalty():
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+            ["01. GUGUK PANJANG", "47.227", "642", "633", "5", "111", "–"],
+            ["1. Tarok Dipo", "17.608", "518", "358", "5", "5", "–"],
+            ["02. MANDIANGIN", "57.500", "1.479", "471", "–", "28", "–"],
+            ["Jumlah / Total", "134.937", "2.292", "1.157", "5", "143", "–"]]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:1375:x", "13", "1375", 2024, unit_hint="Bukittinggi")
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Bukittinggi"} and (tot.level == "kota").all()
+    assert tot.set_index("religion")["count"]["islam"] == 134937
+    toc = "DAFTAR TABEL / LIST OF TABLES\n4.3.1 Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut .......... 160\n" \
+          "4.3.2 Jumlah Tempat Ibadah Islam Kristen Katolik Hindu Budha ........ 161\n"
+    table = "4.3 AGAMA\nJumlah Penduduk Menurut Kecamatan dan Agama yang Dianut, 2023\nIslam Kristen Katholik\nJombang 1.351.098 16.094 1.805"
+    assert da.page_score(table) > da.page_score(toc)
+
+
+def test_sum_of_kecamatan_when_no_total_row():
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Konghucu", "Aliran Kepercayaan"],
+            ["Selebar", "83.614", "1.962", "377", "61", "82", "2", "5"],
+            ["Kampung Melayu", "46.534", "1.983", "284", "27", "69", "-", "-"],
+            ["Gading Cempaka", "35.735", "2.136", "475", "42", "183", "-", "-"],
+            ["Ratu Agung", "50.585", "818", "356", "5", "189", "-", "-"]]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:1771:x", "17", "1771", 2024, unit_hint="Bengkulu")
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Bengkulu"} and (tot.source == "pdf_da_sum").all() and (tot.level == "kota").all()
+    assert tot.set_index("religion")["count"]["islam"] == 216468 and tot.set_index("religion")["count"]["konghucu"] == 2
+    nested = rows[:1] + [["01. GUGUK", "1", "1", "1", "1", "1", "1", "1"], ["1. Tarok", "1", "1", "1", "1", "1", "1", "1"],
+                         ["2. Bukik", "1", "1", "1", "1", "1", "1", "1"]]
+    assert da.parse_rows(nested, "x 2023", "r", "13", "1375", 2024)[lambda x: x.level != "kecamatan"].empty
+
+
+def test_column_continuation_merges_remaining_religions():
+    hdr = [None, None, "Islam", "Kristen", "Katholik"]
+    rows = [hdr, ["010. Bandar Kedung Mulyo", "52.604", "52.551", "43", "7"], ["060. Mojowarno", "99.451", "96.272", "3.093", "65"],
+            ["130. Jombang", "143.301", "137.663", "3.864", "1.009"], ["Kabupaten Jombang", "295.356", "286.486", "7.000", "1.081"]]
+    page2 = _TablePage([[["Kecamatan", "Hindu", "Budha", "Khonghucu", "Lainnya"],
+                         ["010. Bandar Kedung Mulyo", "1", "2", "-", "-"], ["060. Mojowarno", "5", "16", "-", "-"],
+                         ["130. Jombang", "20", "700", "45", "-"], ["Kabupaten Jombang", "26", "718", "45", "-"]]])
+    ext = da.column_continuation(page2, hdr, rows)
+    assert ext is not None
+    hdr2, rows2 = ext
+    d = da.parse_rows([hdr2] + rows2, "Agama yang Dianut 2023", "da:3517:x", "35", "3517", 2024, unit_hint="Jombang")
+    tot = d[d.level != "kecamatan"].set_index("religion")["count"]
+    assert tot["islam"] == 286486 and tot["konghucu"] == 45 and tot["buddha"] == 718

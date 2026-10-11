@@ -23,15 +23,23 @@ from .religion import LONG_COLUMNS, canonical_religion, norm_label, norm_unit_na
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
-RELS = ["islam", "kristen", "protestan", "katolik", "hindu", "budha", "buddha", "konghucu", "khonghucu"]
+RELS = ["islam", "kristen", "protestan", "katolik", "katholik", "hindu", "budha", "buddha", "konghucu", "khonghucu"]
+TOC = re.compile(r"(?i)daftar tabel|list of tables|daftar isi|table of contents|daftar gambar")
 STRONG = re.compile(r"(?i)agama yang dianut|menurut (kecamatan|distrik)[^\n]*agama|by (sub)?district and religion")
 NOT_THIS = re.compile(r"(?i)rumah ibadah|tempat ibadah|penyuluh|jemaah|haji|nikah|sekolah|madrasah|guru|murid")
 
 
 def page_score(text: str) -> int:
+    """Religion names present plus a bonus for the table title; a table of contents
+    (which lists the title too) and places-of-worship tables are penalised."""
     t = text.lower()
     s = sum(r in t for r in RELS) + (4 if STRONG.search(t) else 0)
-    return s - (4 if NOT_THIS.search(t.split("\n", 8)[0] if t else "") else 0)
+    head = "\n".join(t.split("\n")[:8])
+    if NOT_THIS.search(head):
+        s -= 4
+    if TOC.search(head) or len(re.findall(r"\.{4,}\s*\d+|\s\d{1,3}\s*$", t, flags=re.M)) > 12:
+        s -= 10
+    return s
 
 
 def clean_number(cell: object) -> Optional[float]:
@@ -114,13 +122,17 @@ def total_row_index(rows: List[List[object]], cols: List[Tuple[int, str]], hdr: 
             and not re.fullmatch(r"\(?\d\)?", clean_label(r[0]))]
     if len(data) < 2:
         return None
+    for i, r in data:  # an explicit 'Jumlah / Total' row needs no arithmetic
+        if re.fullmatch(r"(?i)(jumlah|total)(\s*/?\s*(jumlah|total))?", clean_label(r[0])):
+            return i
     j = max(cols, key=lambda c: sum(clean_number(r[c[0]]) or 0 for _, r in data if c[0] < len(r)))[0]
     vals = [(i, clean_number(r[j]) if j < len(r) else None) for i, r in data]
+    biggest = max((v for _, v in vals if v), default=0)
     for i, v in vals:
-        if not v:
-            continue
+        if not v or v < biggest:
+            continue  # the total is the largest value of the column
         rest = sum(w for k, w in vals if k != i and w)
-        if rest and abs(v - rest) / v <= 0.02:
+        if rest and abs(v - rest) / v <= 0.01:
             return i
     for i, r in reversed(data):
         if re.match(r"(?i)^(kabupaten|kota|kab\.?)\s", clean_label(r[0])):
@@ -161,6 +173,8 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
             continue
         if i == tot_i:
             name = clean_unit_name(name)
+            if re.fullmatch(r"(?i)(jumlah|total)(\s*/?\s*(jumlah|total))?", name):
+                name = unit_hint or (unit_code or "total")
             lvl = unit_level(name)
             if lvl == "unknown":
                 lvl = "kota" if unit_code and unit_code[2] == "7" else "kabupaten"
@@ -171,9 +185,28 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
                         "unit_code": unit_code if lvl != "kecamatan" else None, "unit_name": name,
                         "year": year, "semester": None, "religion": rel, "count": v, "ref": ref, "level": lvl})
     df = pd.DataFrame(out, columns=LONG_COLUMNS + ["level"])
+    if tot_i is None and not percent and unit_hint and len(df) and not _nested_numbering(rows, hdr):
+        # no total row printed (Kota Bengkulu): the kabupaten is the sum of its kecamatan,
+        # marked as such in the source
+        kec = df[df["level"] == "kecamatan"]
+        if kec["unit_name"].nunique() >= 3:
+            tot = kec.groupby("religion", as_index=False)["count"].sum(min_count=1)
+            lvl = "kota" if unit_code and unit_code[2] == "7" else "kabupaten"
+            tot = tot.assign(source="pdf_da_sum", province_code=province_code, unit_code=unit_code,
+                             unit_name=unit_hint or unit_code or "total", year=year, semester=None, ref=ref, level=lvl)
+            df = pd.concat([df, tot[LONG_COLUMNS + ["level"]]], ignore_index=True)
     df["unit_name_norm"] = df["unit_name"].map(norm_unit_name)
     df.attrs["percent"] = percent
     return df
+
+
+def _nested_numbering(rows: List[List[object]], hdr: int) -> bool:
+    """True when row labels carry two numbering levels ('01. GUGUK PANJANG' kecamatan with
+    '1. Tarok Dipo' kelurahan under it): summing the rows would double count."""
+    labels = [str(r[0] or "").strip() for r in rows[hdr + 1:] if r]
+    two = any(re.match(r"^\d{2}\.", x) for x in labels)
+    one = any(re.match(r"^\d\.", x) for x in labels)
+    return two and one
 
 
 def percent_number(cell: object) -> Optional[float]:
@@ -271,7 +304,8 @@ def _data_rows(tb: List[List[object]]) -> List[List[object]]:
     """Rows after the header row (and the '(1) (2)' numbering row)."""
     for i, r in enumerate(tb):
         if len(header_map(r)) >= 3:
-            return [x for x in tb[i + 1:] if x and not re.fullmatch(r"\(?\d\)?", clean_label(x[0]))]
+            return [x for x in tb[i + 1:] if x and not re.fullmatch(r"\(?\d\)?", clean_label(x[0]))
+                    and not all(re.fullmatch(r"\s*(\(\d{1,2}\))?\s*", str(c or "")) for c in x)]
     return []
 
 
@@ -292,6 +326,35 @@ def continuation_rows(page, hdr: List[object]) -> List[List[object]]:
                 and not any(canonical_religion(str(c or "")) for c in r[1:])]
         same_width += rows
     return same_width
+
+
+def column_continuation(page, hdr: List[object], rows: List[List[object]]) -> Optional[Tuple[List[object], List[List[object]]]]:
+    """A wide table printed on two pages by columns (Jombang: Islam/Kristen/Katolik on one
+    page, Hindu/Budha/Konghucu/Lainnya on the next): when `page` has a religion header with
+    religions not in `hdr` and the same row labels, return the header and rows extended
+    with the new columns."""
+    have = {r for _, r in header_map(hdr)}
+    for t in religion_tables(page):
+        h2 = next(x for x in t if len(header_map(x)) >= 3) if any(len(header_map(x)) >= 3 for x in t) else None
+        if h2 is None:
+            h2 = next((x for x in t if header_map(x)), None)
+        if h2 is None:
+            continue
+        new_cols = [(j, r) for j, r in header_map(h2) if r not in have]
+        if not new_cols:
+            continue
+        data2 = _data_rows(t) if any(len(header_map(x)) >= 3 for x in t) else [x for x in t if x is not h2]
+        by_label = {norm_label(clean_label(x[0])): x for x in data2 if x and clean_label(x[0])}
+        matched = sum(norm_label(clean_label(r[0])) in by_label for r in rows[1:] if r and clean_label(r[0]))
+        if matched < max(3, 0.6 * (len(rows) - 1)):
+            continue
+        ext_hdr = list(hdr) + [h2[j] for j, _ in new_cols]
+        ext_rows = []
+        for r in rows[1:]:
+            x = by_label.get(norm_label(clean_label(r[0]))) if r and clean_label(r[0]) else None
+            ext_rows.append(list(r) + [x[j] if x is not None and j < len(x) else None for j, _ in new_cols])
+        return ext_hdr, ext_rows
+    return None
 
 
 def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optional[str] = None,
@@ -353,6 +416,12 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
                 break
             rows += more
             pages_used.append(nxt)
+        if best_i + 1 < len(pdf.pages):  # the remaining religion columns on the facing page
+            ext = column_continuation(pdf.pages[best_i + 1], hdr, rows)
+            if ext is not None:
+                hdr, data = ext
+                rows = [hdr] + data
+                pages_used.append(best_i + 1)
         if debug:
             log(f"  [debug] page {best_i} tables={len(tables)} header={[r for _, r in header_map(hdr)]} "
                 f"rows={len(rows) - 1} total_row={total_row_index(rows, header_map(hdr), 0, unit_hint)} "

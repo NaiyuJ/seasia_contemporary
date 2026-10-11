@@ -144,7 +144,7 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     (default: arcgis, pdf, pdf_da, bpsvar, bps, bps_kabsum: dynamic BPS tables are cleaner than
     the Excel-exported static ones, and a labelled total beats a sum of kecamatan).
     semester is 0 when the source is annual."""
-    prefer = prefer or ["arcgis", "pdf", "pdf_da", "bpsvar", "bps", "bps_kabsum", "pdf_da_pct"]
+    prefer = prefer or ["arcgis", "pdf", "pdf_da", "bpsvar", "bps", "bps_kabsum", "pdf_da_sum", "pdf_da_pct"]
     bad = BAD_REFS | set(exclude_refs or ())
     df = long[long["unit_code"].notna() & long["count"].notna() & ~long["ref"].isin(bad)].copy()
     if "level" in df.columns:
