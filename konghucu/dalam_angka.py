@@ -37,8 +37,8 @@ def page_score(text: str) -> int:
     head = "\n".join(t.split("\n")[:8])
     if NOT_THIS.search(head):
         s -= 4
-    if TOC.search(head) or len(re.findall(r"\.{4,}\s*\d+|\s\d{1,3}\s*$", t, flags=re.M)) > 12:
-        s -= 10
+    if TOC.search(head) or len(re.findall(r"\.{4,}\s*\d+\s*$", t, flags=re.M)) > 5:
+        s -= 10  # a table of contents: dotted leaders with page numbers
     return s
 
 
@@ -386,66 +386,80 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
             return done(empty, "booklet", f"per-{hm.group(1).lower()} booklet, skipped")
         um = re.search(r"(?i)\b(kabupaten|kota|kab\.?)\s+([A-Za-z' ]{2,40}?)\s+dalam angka", head)
         unit_hint = um.group(2).strip() if um else None
-        best, best_i, texts, any_text = -99, None, {}, False
+        scored, texts, any_text = [], {}, False
         for i, page in enumerate(pdf.pages):
             t = page.extract_text() or ""
             any_text = any_text or len(t) > 200
             if "agama" not in t.lower() and "religion" not in t.lower():
                 continue
-            sc = page_score(t)
             texts[i] = t
-            if sc > best:
-                best, best_i = sc, i
+            scored.append((page_score(t), i))
         if not any_text:
             return done(empty, "scanned", "no text layer (scanned PDF); needs OCR")
-        if best_i is None or best < 5:
+        candidates = [i for sc, i in sorted(scored, key=lambda x: (-x[0], x[1])) if sc >= 5][:5]
+        if not candidates:
+            best = max((sc for sc, _ in scored), default=-99)
             return done(empty, "no_table", f"no population-by-religion table found (best score {best})")
-        tables = religion_tables(pdf.pages[best_i])
-        if not tables:
-            return done(empty, "unparsed", f"page {best_i} looks right but no table parsed")
-        tb = max(tables, key=len)
-        hdr = next(r for r in tb if len(header_map(r)) >= 3)
-        rows = [hdr] + _data_rows(tb)
-        pages_used = [best_i]
-        # continued on the next page(s): no total row yet, and the next page has the same columns
-        for nxt in (best_i + 1, best_i + 2):
-            if total_row_index(rows, header_map(hdr), 0, unit_hint) is not None or nxt >= len(pdf.pages):
-                break
-            more = continuation_rows(pdf.pages[nxt], hdr)
-            if not more:
-                break
-            rows += more
-            pages_used.append(nxt)
-        if best_i + 1 < len(pdf.pages):  # the remaining religion columns on the facing page
-            ext = column_continuation(pdf.pages[best_i + 1], hdr, rows)
-            if ext is not None:
-                hdr, data = ext
-                rows = [hdr] + data
-                pages_used.append(best_i + 1)
-        if debug:
-            log(f"  [debug] page {best_i} tables={len(tables)} header={[r for _, r in header_map(hdr)]} "
-                f"rows={len(rows) - 1} total_row={total_row_index(rows, header_map(hdr), 0, unit_hint)} "
-                f"hint={unit_hint!r} pages={pages_used}")
-            for r in rows[:6] + rows[-3:]:
-                log("    " + " | ".join(str(c).replace(chr(10), " ")[:16] for c in r))
-        if not any(re.search(r"\d", str(c or "")) for r in rows[1:] for c in r[1:]):
-            return done(empty, "no_numbers", f"page {best_i}: table found but its figures are not in the text layer")
-        df = parse_rows(rows, texts[best_i], ref, domain[:2] if domain else "", domain, book_year, unit_hint)
+        # several pages can look like the table (a places-of-worship table, a Kemenag count,
+        # a list of tables): take them in score order and keep the first that yields a usable one
+        failure = None
+        for best_i in candidates:
+            df, status, msg = _read_candidate(pdf, best_i, texts[best_i], ref, domain, book_year, unit_hint, log, debug)
+            if status in ("ok", "ok_percent"):
+                df.attrs["status"] = status
+                log(f"  {path.name}: {msg}")
+                return df
+            if failure is None or status == "no_numbers":
+                failure = (status, msg)
+    return done(empty, *failure)
+
+
+def _read_candidate(pdf, best_i, text, ref, domain, book_year, unit_hint, log, debug):
+    """Read the religion table starting on page best_i. Returns (df, status, message)."""
+    empty = pd.DataFrame(columns=LONG_COLUMNS + ["level"])
+    tables = religion_tables(pdf.pages[best_i])
+    if not tables:
+        return empty, "unparsed", f"page {best_i} looks right but no table parsed"
+    tb = max(tables, key=len)
+    hdr = next(r for r in tb if len(header_map(r)) >= 3)
+    rows = [hdr] + _data_rows(tb)
+    pages_used = [best_i]
+    # continued on the next page(s): no total row yet, and the next page has the same columns
+    for nxt in (best_i + 1, best_i + 2):
+        if total_row_index(rows, header_map(hdr), 0, unit_hint) is not None or nxt >= len(pdf.pages):
+            break
+        more = continuation_rows(pdf.pages[nxt], hdr)
+        if not more:
+            break
+        rows += more
+        pages_used.append(nxt)
+    if best_i + 1 < len(pdf.pages):  # the remaining religion columns on the facing page
+        ext = column_continuation(pdf.pages[best_i + 1], hdr, rows)
+        if ext is not None:
+            hdr, data = ext
+            rows = [hdr] + data
+            pages_used.append(best_i + 1)
+    if debug:
+        log(f"  [debug] page {best_i} tables={len(tables)} header={[r for _, r in header_map(hdr)]} "
+            f"rows={len(rows) - 1} total_row={total_row_index(rows, header_map(hdr), 0, unit_hint)} "
+            f"hint={unit_hint!r} pages={pages_used}")
+        for r in rows[:6] + rows[-3:]:
+            log("    " + " | ".join(str(c).replace(chr(10), " ")[:16] for c in r))
+    if not any(re.search(r"\d", str(c or "")) for r in rows[1:] for c in r[1:]):
+        return empty, "no_numbers", f"page {best_i}: table found but its figures are not in the text layer"
+    df = parse_rows(rows, text, ref, domain[:2] if domain else "", domain, book_year, unit_hint)
     if df.empty:
-        return done(empty, "unparsed", f"page {best_i} looks right but no table parsed")
-    if df.attrs.get("percent"):
-        tot = df[df["level"] != "kecamatan"]
-        if tot.empty:
-            return done(empty, "no_total", f"page {best_i}: percentage table without a row adding to 100")
-        k = tot[tot["religion"] == "konghucu"]["count"]
-        df.attrs["status"] = "ok_percent"
-        log(f"  {path.name}: page {best_i} year={df['year'].iloc[0]} {tot['unit_name'].iloc[0]} PERCENT table "
-            f"(converted with the population in harmonize) konghucu={k.iloc[0] if len(k) else 'in Lainnya'}%")
-        return df
+        return empty, "unparsed", f"page {best_i} looks right but no table parsed"
     tot = df[df["level"] != "kecamatan"]
+    if df.attrs.get("percent"):
+        if tot.empty:
+            return empty, "no_total", f"page {best_i}: percentage table without a row adding to 100"
+        k = tot[tot["religion"] == "konghucu"]["count"]
+        return df, "ok_percent", (f"page {best_i} year={df['year'].iloc[0]} {tot['unit_name'].iloc[0]} PERCENT table "
+                                  f"(converted with the population in harmonize) konghucu={k.iloc[0] if len(k) else 'in Lainnya'}%")
     if tot.empty:
-        return done(empty, "no_total", f"pages {pages_used}: no total row equal to the sum of the "
-                                       f"{df['unit_name'].nunique()} rows (a kecamatan book, or a split table)")
+        return empty, "no_total", (f"pages {pages_used}: no total row equal to the sum of the "
+                                   f"{df['unit_name'].nunique()} rows (a kecamatan book, or a split table)")
     k = tot[tot["religion"] == "konghucu"]["count"]
-    return done(df, "ok", f"pages {pages_used} year={df['year'].iloc[0]} {tot['unit_name'].iloc[0]} "
-                          f"total={tot['count'].sum():,.0f} konghucu={k.iloc[0] if len(k) else 'in Lainnya'}")
+    return df, "ok", (f"pages {pages_used} year={df['year'].iloc[0]} {tot['unit_name'].iloc[0]} "
+                      f"total={tot['count'].sum():,.0f} konghucu={k.iloc[0] if len(k) else 'in Lainnya'}")

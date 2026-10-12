@@ -236,3 +236,42 @@ def test_column_continuation_merges_remaining_religions():
     d = da.parse_rows([hdr2] + rows2, "Agama yang Dianut 2023", "da:3517:x", "35", "3517", 2024, unit_hint="Jombang")
     tot = d[d.level != "kecamatan"].set_index("religion")["count"]
     assert tot["islam"] == 286486 and tot["konghucu"] == 45 and tot["buddha"] == 718
+
+
+def test_extract_book_skips_table_of_contents_and_reads_the_table(monkeypatch):
+    import sys
+    import types
+
+    class P:
+        def __init__(self, text, tables):
+            self.t, self.tb = text, tables
+
+        def extract_text(self):
+            return self.t
+
+        def extract_tables(self):
+            return self.tb
+
+        def extract_words(self):
+            return []
+
+    toc = "DAFTAR TABEL\n" + "4.3.1 Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut ........ 160\n" * 8 \
+        + "Islam Kristen Katolik Hindu Budha Konghucu"
+    table = "Tabel 4.3.1 Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut, 2023\nIslam Protestan Katolik Hindu Budha Lainnya"
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"], ["Selakau", "100", "10", "5", "1", "2", "0"],
+            ["Tebas", "200", "20", "10", "2", "4", "0"], ["Kabupaten Sambas", "300", "30", "15", "3", "6", "0"]]
+
+    class PDF:
+        pages = [P("KABUPATEN SAMBAS DALAM ANGKA 2024", []), P(toc, []), P(table, [rows])]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", types.SimpleNamespace(open=lambda path: PDF()))
+    d = da.extract_book("6101_abc.pdf", log=lambda *a: None)
+    assert d.attrs["status"] == "ok" and d["year"].iloc[0] == 2023
+    tot = d[d.level != "kecamatan"].set_index("religion")["count"]
+    assert tot["islam"] == 300 and (d[d.level != "kecamatan"]["unit_code"] == "6101").all()
