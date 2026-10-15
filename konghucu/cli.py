@@ -321,6 +321,12 @@ def cmd_dalam_angka_extract(a):
         print("books without a usable table (domain, outcome, title):")
         for r in bad.itertuples(index=False):
             print(f"  {r.book[:4]} {r.status:9s} {str(r.title)[:60]}")
+    broken = st[st["status"].isin(["corrupt", "not_pdf"])]
+    if len(broken):
+        lst = Path(a.out).with_name("broken_pdfs.txt")
+        lst.write_text("\n".join(f"{Path(p).parent}/{b}.pdf" for b in broken["book"] for p in a.pdfs[:1]) + "\n")
+        print(f"{len(broken)} files are not readable PDFs (truncated downloads) -> {lst}; delete them and run "
+              f"bps-publications --download again to fetch them afresh")
 
 
 def cmd_bps_population(a):

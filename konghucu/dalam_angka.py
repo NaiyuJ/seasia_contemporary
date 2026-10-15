@@ -388,7 +388,11 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
         magic = fh.read(5)
     if not magic.startswith(b"%PDF"):
         return done(empty, "not_pdf", "file is not a PDF (an HTML error page from the download?); delete and re-download")
-    with pdfplumber.open(str(path)) as pdf:
+    try:
+        pdf_cm = pdfplumber.open(str(path))
+    except Exception as e:  # noqa: BLE001  truncated download: pdfminer 'No /Root object'
+        return done(empty, "corrupt", f"cannot be opened ({type(e).__name__}: {str(e)[:60]}); delete and re-download")
+    with pdf_cm as pdf:
         head = " ".join((pdf.pages[i].extract_text() or "") for i in range(min(3, len(pdf.pages))))
         if book_year is None:
             ym = re.search(r"(?i)dalam angka\s*(20\d\d)", head) or re.search(r"\b(20\d\d)\b", head)
