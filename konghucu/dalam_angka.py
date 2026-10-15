@@ -402,16 +402,23 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
             return done(empty, "no_table", f"no population-by-religion table found (best score {best})")
         # several pages can look like the table (a places-of-worship table, a Kemenag count,
         # a list of tables): take them in score order and keep the first that yields a usable one
-        failure = None
+        tried = []
         for best_i in candidates:
-            df, status, msg = _read_candidate(pdf, best_i, texts[best_i], ref, domain, book_year, unit_hint, log, debug)
+            try:
+                df, status, msg = _read_candidate(pdf, best_i, texts[best_i], ref, domain, book_year, unit_hint, log, debug)
+            except Exception as e:  # noqa: BLE001  one odd page must not sink the book
+                status, msg = "error", f"page {best_i}: {type(e).__name__}: {str(e)[:80]}"
+            if debug:
+                log(f"  [debug] candidate page {best_i}: {status}")
             if status in ("ok", "ok_percent"):
                 df.attrs["status"] = status
                 log(f"  {path.name}: {msg}")
                 return df
-            if failure is None or status == "no_numbers":
-                failure = (status, msg)
-    return done(empty, *failure)
+            tried.append((status, msg))
+    # report the most informative failure: numbers missing beats an unparsed page beats no total
+    order = {"no_numbers": 0, "no_total": 1, "unparsed": 2, "error": 3}
+    status, msg = sorted(tried, key=lambda x: order.get(x[0], 9))[0]
+    return done(empty, status, msg + f" (candidate pages tried: {[m.split(':')[0].replace('page ', '').replace('pages ', '') for _, m in tried]})")
 
 
 def _read_candidate(pdf, best_i, text, ref, domain, book_year, unit_hint, log, debug):
