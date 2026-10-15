@@ -187,6 +187,11 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
                         "unit_code": unit_code if lvl != "kecamatan" else None, "unit_name": name,
                         "year": year, "semester": None, "religion": rel, "count": v, "ref": ref, "level": lvl})
     df = pd.DataFrame(out, columns=LONG_COLUMNS + ["level"])
+    if tot_i is not None and not percent and not any(v is not None for _, v in
+                                                      [(rel, clean_number(rows[tot_i][j]) if j < len(rows[tot_i]) else None) for j, rel in cols]):
+        # the total row is printed but empty (Pasuruan): sum the kecamatan under its name
+        unit_hint = unit_hint or clean_unit_name(clean_label(rows[tot_i][0]))
+        tot_i = None
     if tot_i is None and not percent and unit_hint and len(df) and not _nested_numbering(rows, hdr):
         # no total row printed (Kota Bengkulu): the kabupaten is the sum of its kecamatan,
         # marked as such in the source
@@ -360,7 +365,8 @@ def column_continuation(page, hdr: List[object], rows: List[List[object]]) -> Op
 
 
 def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optional[str] = None,
-                 book_year: Optional[int] = None, log=print, debug: bool = False) -> pd.DataFrame:
+                 book_year: Optional[int] = None, log=print, debug: bool = False,
+                 title: Optional[str] = None) -> pd.DataFrame:
     """Find the religion table in one Dalam Angka PDF and return long rows. The domain
     (BPS 4-digit code) and pub_id default to the file name '<domain>_<pub_id>.pdf'.
     A table continued on the following page(s) is joined before the total row is
@@ -390,7 +396,9 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
         hm = re.search(r"(?i)\b(kecamatan|distrik|kapanewon|kemantren)\s+[A-Za-z' ]{2,40}?\s+dalam angka", head)
         if hm:
             return done(empty, "booklet", f"per-{hm.group(1).lower()} booklet, skipped")
-        um = re.search(r"(?i)\b(kabupaten|kota|kab\.?)\s+([A-Za-z' ]{2,40}?)\s+dalam angka", head)
+        um = re.search(r"(?i)\b(kabupaten|kota|kab\.?)\s+([A-Za-z' ]{2,40}?)\s+dalam angka", head or "")
+        if um is None and title:
+            um = re.search(r"(?i)\b(kabupaten|kota|kab\.?)\s+([A-Za-z' ]{2,40}?)\s+dalam angka", title)
         unit_hint = um.group(2).strip() if um else None
         scored, texts, any_text = [], {}, False
         for i, page in enumerate(pdf.pages):
@@ -458,7 +466,10 @@ def _read_candidate(pdf, best_i, text, ref, domain, book_year, unit_hint, log, d
             f"hint={unit_hint!r} pages={pages_used}")
         for r in rows[:6] + rows[-3:]:
             log("    " + " | ".join(str(c).replace(chr(10), " ")[:16] for c in r))
-    if not any(re.search(r"\d", str(c or "")) for r in rows[1:] for c in r[1:]):
+    cells = [str(c or "").strip() for r in rows[1:] for c in r[1:]]
+    if cells and sum(bool(re.fullmatch(r"[.…]{2,}", c)) for c in cells) >= len(cells) / 2:
+        return empty, "no_data", f"page {best_i}: the table is printed with '...' (data not available)"
+    if not any(re.search(r"\d", c) for c in cells):
         return empty, "no_numbers", f"page {best_i}: table found but its figures are not in the text layer"
     df = parse_rows(rows, text, ref, domain[:2] if domain else "", domain, book_year, unit_hint)
     if df.empty:

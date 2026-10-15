@@ -302,7 +302,7 @@ def cmd_dalam_angka_extract(a):
         if re.match(r"(?i)^(kecamatan|distrik|kapanewon|kemantren)\b", title) or re.search(r"(?i)infografis", title):
             continue  # per-kecamatan booklet or infographic, not the yearbook
         try:
-            d = dalam_angka.extract_book(p, debug=a.debug)
+            d = dalam_angka.extract_book(p, debug=a.debug, title=title or None)
             status.append((stem, d.attrs.get("status", "?"), title))
             if len(d):
                 parts.append(d)

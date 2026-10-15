@@ -280,3 +280,15 @@ def test_extract_book_skips_table_of_contents_and_reads_the_table(monkeypatch, t
     assert d.attrs["status"] == "ok" and d["year"].iloc[0] == 2023
     tot = d[d.level != "kecamatan"].set_index("religion")["count"]
     assert tot["islam"] == 300 and (d[d.level != "kecamatan"]["unit_code"] == "6101").all()
+
+
+def test_empty_total_row_is_replaced_by_the_sum_of_kecamatan():
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+            ["Purwodadi", "70.829", "421", "80", "10", "5", "0"],
+            ["Tutur", "52.391", "450", "74", "2.192", "0", "0"],
+            ["Puspo", "27.219", "15", "1", "929", "0", "0"],
+            ["Kabupaten Pasuruan", "/", "p", "", "", "", ""]]
+    d = da.parse_rows(rows, "Agama yang Dianut, 2023", "da:3514:x", "35", "3514", 2024)
+    tot = d[d.level != "kecamatan"]
+    assert set(tot.unit_name) == {"Kabupaten Pasuruan"} and (tot.source == "pdf_da_sum").all()
+    assert tot.set_index("religion")["count"]["islam"] == 150439 and tot.set_index("religion")["count"]["hindu"] == 3131
