@@ -270,11 +270,19 @@ def cmd_bps_publications(a):
                 continue
             dest = out_dir / f"{r.domain}_{r.pub_id}.pdf"
             if dest.exists() and dest.stat().st_size > 0:
-                print(f"  have {dest}")
-                continue
+                with open(dest, "rb") as fh:
+                    ok = fh.read(5).startswith(b"%PDF")
+                if ok:
+                    print(f"  have {dest}")
+                    continue
+                dest.unlink()  # an HTML error page saved as .pdf by an earlier run: fetch again
             try:
                 resp = s.get(r.pdf, timeout=120)
                 resp.raise_for_status()
+                if not resp.content.startswith(b"%PDF"):
+                    print(f"  {dest}: FAILED not a PDF ({resp.headers.get('content-type')}, {len(resp.content)} bytes)  "
+                          f"{str(r.title)[:50]}", flush=True)
+                    continue
                 dest.write_bytes(resp.content)
                 print(f"  {dest} ({len(resp.content) // 1024} KB)  {str(r.title)[:50]}", flush=True)
             except Exception as e:  # noqa: BLE001

@@ -34,6 +34,8 @@ def page_score(text: str) -> int:
     (which lists the title too) and places-of-worship tables are penalised."""
     t = text.lower()
     s = sum(r in t for r in RELS) + (4 if STRONG.search(t) else 0)
+    if "agama" in t and "penduduk" in t and not STRONG.search(t):
+        s += 2  # Jombang: the column group is just headed 'Agama/Religion' under a population table
     head = "\n".join(t.split("\n")[:8])
     if NOT_THIS.search(head):
         s -= 4
@@ -376,6 +378,10 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
         log(f"  {path.name}: {msg}")
         return df
 
+    with open(path, "rb") as fh:
+        magic = fh.read(5)
+    if not magic.startswith(b"%PDF"):
+        return done(empty, "not_pdf", "file is not a PDF (an HTML error page from the download?); delete and re-download")
     with pdfplumber.open(str(path)) as pdf:
         head = " ".join((pdf.pages[i].extract_text() or "") for i in range(min(3, len(pdf.pages))))
         if book_year is None:
@@ -396,7 +402,7 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
             scored.append((page_score(t), i))
         if not any_text:
             return done(empty, "scanned", "no text layer (scanned PDF); needs OCR")
-        candidates = [i for sc, i in sorted(scored, key=lambda x: (-x[0], x[1])) if sc >= 5][:5]
+        candidates = [i for sc, i in sorted(scored, key=lambda x: (-x[0], x[1])) if sc >= 4][:6]
         if not candidates:
             best = max((sc for sc, _ in scored), default=-99)
             return done(empty, "no_table", f"no population-by-religion table found (best score {best})")
