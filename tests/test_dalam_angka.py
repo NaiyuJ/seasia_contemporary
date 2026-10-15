@@ -238,7 +238,7 @@ def test_column_continuation_merges_remaining_religions():
     assert tot["islam"] == 286486 and tot["konghucu"] == 45 and tot["buddha"] == 718
 
 
-def test_extract_book_skips_table_of_contents_and_reads_the_table(monkeypatch):
+def test_extract_book_skips_table_of_contents_and_reads_the_table(monkeypatch, tmp_path):
     import sys
     import types
 
@@ -271,7 +271,12 @@ def test_extract_book_skips_table_of_contents_and_reads_the_table(monkeypatch):
             pass
 
     monkeypatch.setitem(sys.modules, "pdfplumber", types.SimpleNamespace(open=lambda path: PDF()))
-    d = da.extract_book("6101_abc.pdf", log=lambda *a: None)
+    f = tmp_path / "6101_abc.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    d = da.extract_book(f, log=lambda *a: None)
+    html = tmp_path / "6102_def.pdf"
+    html.write_bytes(b"<html>error</html>")
+    assert da.extract_book(html, log=lambda *a: None).attrs["status"] == "not_pdf"
     assert d.attrs["status"] == "ok" and d["year"].iloc[0] == 2023
     tot = d[d.level != "kecamatan"].set_index("religion")["count"]
     assert tot["islam"] == 300 and (d[d.level != "kecamatan"]["unit_code"] == "6101").all()
