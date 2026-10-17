@@ -50,6 +50,8 @@
 
 Sambas（6101）、Bengkayang（6102）、Singkawang（6172）的宗教表不在 API 里，只在每年的《Kabupaten/Kota X Dalam Angka》PDF 里（第 4.3 节"Jumlah Penduduk Menurut Kecamatan dan Agama yang Dianut"，来源写明是当地 Dukcapil）。流程：`bps-publications --domains 6101 6102 6172 --years 2022 2023 2024 --download data/raw/pubs` 下载县级年鉴（默认只取县/市级的书，不取 kecamatan 小册子），`dalam-angka-extract data/raw/pubs/*.pdf` 找到宗教表并解析成长表（source 记为 `pdf_da`，ref 为 `da:<domain>:<pub_id>`），再把 `dalam_angka_long.csv` 加进 `harmonize --inputs`。年鉴标题年份减一才是数据年份（2024 年的书登的是 2023 年的数），解析时以表题里的年份为准。
 
+全国推广（2024 年的书，登 2023 年数据）：287 个缺 2021 到 2023 年数据的县里，243 本读出计数表、6 本读出百分比表（用官方人口换算），余下的分四类放弃：54 本书里没有这张表；14 本是扫描件；14 本表里印的是"..."（数据不可得，多为宗教部来源的书）；约 20 本（多在巴布亚）数字不在 PDF 文字层里或表格结构无法识别。`dalam-angka-extract` 结尾按书列出结果类别。解析器处理的版式：按 kecamatan 和 kelurahan 两级编号的表（用显式的 Jumlah/Total 行）；没有合计行的表（各 kecamatan 相加，source 记 `pdf_da_sum`）；合计行印了但没有数字的表；跨页续表（有或没有重复表头）；按列拆成两页的宽表（按行名合并）；目录页里重复的表题（扣分）；无框线的表（按文字坐标分列）。
+
 两个坑：PDF 上有对角线水印（BPS 网址），字母会漏进数字格（"4i1" 是 41，"30b.040" 是 30 040），解析时只取数字；Sambas 和 Bengkayang 的表没有孔教列，孔教并在 Lainnya 里，只有 Singkawang 单列（2023 年 2,316 人）。前两个县的孔教人数只能用 Lainnya 当上界。
 
 ## 官方人口作为锚
