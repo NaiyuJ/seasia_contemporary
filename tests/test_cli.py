@@ -33,3 +33,26 @@ def test_bps_publications_lists_and_filters(tmp_path, monkeypatch, capsys):
     assert "Dalam Angka 2023" in text and "Dalam Angka 2021" not in text
     import pandas as pd
     assert list(pd.read_csv(out)["pub_id"]) == [1]
+
+
+def test_dalam_angka_extract_uses_cache(tmp_path, monkeypatch, capsys):
+    import pandas as pd
+    from konghucu import cli, dalam_angka
+    calls = []
+
+    def fake_extract(path, debug=False, title=None):
+        calls.append(path)
+        d = pd.DataFrame([dict(source="pdf_da", province_code="61", unit_code="6101", unit_name="Kabupaten Sambas", year=2023,
+                               semester=None, religion="islam", count=1.0, ref="da:6101:x", level="kabupaten")])
+        d.attrs["status"] = "ok"
+        return d
+    monkeypatch.setattr(dalam_angka, "extract_book", fake_extract)
+    pdf = tmp_path / "6101_abc.pdf"
+    pdf.write_bytes(b"%PDF")
+    args = ["dalam-angka-extract", str(pdf), "--out", str(tmp_path / "out.csv"), "--cache", str(tmp_path / "cache"),
+            "--catalogue", str(tmp_path / "none.csv")]
+    cli.main(args)
+    cli.main(args)
+    assert len(calls) == 1 and "taken from the cache" in capsys.readouterr().out
+    cli.main(args + ["--no-cache"])
+    assert len(calls) == 2

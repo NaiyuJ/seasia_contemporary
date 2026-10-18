@@ -23,6 +23,8 @@ from .religion import LONG_COLUMNS, canonical_religion, norm_label, norm_unit_na
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
+PARSER_VERSION = "2026-10-18a"  # bump when a parsing change should invalidate dalam-angka-extract's per-book cache
+
 RELS = ["islam", "kristen", "protestan", "katolik", "katholik", "hindu", "budha", "buddha", "konghucu", "khonghucu"]
 TOC = re.compile(r"(?i)daftar tabel|list of tables|daftar isi|table of contents|daftar gambar")
 STRONG = re.compile(r"(?i)agama yang dianut|menurut (kecamatan|distrik)[^\n]*agama|by (sub)?district and religion")

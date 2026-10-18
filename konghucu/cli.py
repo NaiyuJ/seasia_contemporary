@@ -296,19 +296,45 @@ def cmd_dalam_angka_extract(a):
     if Path(a.catalogue).exists():
         cat = pd.read_csv(a.catalogue, dtype=str)
         titles = dict(zip(cat["domain"] + "_" + cat["pub_id"], cat["title"]))
+    cache = Path(a.cache) if a.cache else None
+    if cache:
+        cache.mkdir(parents=True, exist_ok=True)
+    import json
+    reused = 0
     for p in a.pdfs:
         stem = Path(p).stem
         title = titles.get(stem, "")
         if re.match(r"(?i)^(kecamatan|distrik|kapanewon|kemantren)\b", title) or re.search(r"(?i)infografis", title):
             continue  # per-kecamatan booklet or infographic, not the yearbook
+        meta = cache / f"{stem}.json" if cache else None
+        if meta is not None and meta.exists() and not a.no_cache:
+            # a book read by this version of the parser is not read again
+            m = json.loads(meta.read_text())
+            if m.get("parser") == dalam_angka.PARSER_VERSION:
+                status.append((stem, m["status"], title))
+                csv = cache / f"{stem}.csv"
+                if csv.exists():
+                    parts.append(pd.read_csv(csv, dtype={"province_code": str, "unit_code": str}))
+                reused += 1
+                continue
         try:
             d = dalam_angka.extract_book(p, debug=a.debug, title=title or None)
-            status.append((stem, d.attrs.get("status", "?"), title))
+            st = d.attrs.get("status", "?")
+            status.append((stem, st, title))
             if len(d):
                 parts.append(d)
+            if meta is not None:
+                meta.write_text(json.dumps({"status": st, "parser": dalam_angka.PARSER_VERSION}))
+                csv = cache / f"{stem}.csv"
+                if len(d):
+                    d.to_csv(csv, index=False)
+                elif csv.exists():
+                    csv.unlink()
         except Exception as e:  # noqa: BLE001
             print(f"  {p}: FAILED {type(e).__name__}: {str(e)[:100]}")
             status.append((stem, "error", title))
+    if reused:
+        print(f"{reused} books taken from the cache ({cache}); pass --no-cache to read them again")
     df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS + ["level"])
     df.to_csv(_out(a.out), index=False)
     kab = df[df["level"] != "kecamatan"]
@@ -515,6 +541,9 @@ def build_parser():
     da.add_argument("pdfs", nargs="+")
     da.add_argument("--out", default="data/konghucu/dalam_angka_long.csv")
     da.add_argument("--debug", action="store_true", help="print how each book's table was read")
+    da.add_argument("--cache", default="data/konghucu/da_cache",
+                    help="per-book results; a book is re-read only when the parser version changed ('' to disable)")
+    da.add_argument("--no-cache", action="store_true", help="read every book again")
     da.add_argument("--catalogue", default="data/konghucu/bps_publications.csv",
                     help="bps-publications output, used to skip per-kecamatan booklets and name failures")
     da.set_defaults(func=cmd_dalam_angka_extract)
