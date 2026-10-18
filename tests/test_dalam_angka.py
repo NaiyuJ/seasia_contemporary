@@ -292,3 +292,13 @@ def test_empty_total_row_is_replaced_by_the_sum_of_kecamatan():
     tot = d[d.level != "kecamatan"]
     assert set(tot.unit_name) == {"Kabupaten Pasuruan"} and (tot.source == "pdf_da_sum").all()
     assert tot.set_index("religion")["count"]["islam"] == 150439 and tot.set_index("religion")["count"]["hindu"] == 3131
+
+
+def test_data_year_is_the_year_before_the_book():
+    rows = [["Kecamatan", "Islam", "Protestan", "Katolik", "Hindu", "Budha", "Lainnya"],
+            ["Selakau", "100", "10", "5", "1", "2", "0"], ["Tebas", "200", "20", "10", "2", "4", "0"],
+            ["Kabupaten Sambas", "300", "30", "15", "3", "6", "0"]]
+    d = da.parse_rows(rows, "Agama yang Dianut Hasil SP2010, 2010", "r", "61", "6101", 2024)
+    assert d["year"].iloc[0] == 2023  # a stray 2010 on the page is not the data year
+    d = da.parse_rows(rows, "Agama yang Dianut, 2022", "r", "61", "6101", 2024)
+    assert d["year"].iloc[0] == 2022  # two years back is allowed

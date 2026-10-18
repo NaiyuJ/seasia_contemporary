@@ -733,3 +733,13 @@ def test_percentage_cells_become_counts_through_the_population():
     r = panel.iloc[0]
     assert r["islam"] == 398000 and r["konghucu"] == 200 and abs(r["konghucu_share_pop"] - 0.0005) < 1e-9
     assert r["total_to_pop"] == 1.0
+
+
+def test_konghucu_upper_bound_from_lainnya():
+    long = _long([("6101", 2023, "a", {"islam": 90000, "kristen": 5000, "katolik": 3000, "lainnya": 400}, None),
+                  ("6172", 2023, "b", {"islam": 90000, "kristen": 5000, "katolik": 3000, "konghucu": 2316, "lainnya": 4}, None)])
+    pop = pd.DataFrame({"unit_code": ["6101", "6172"], "year": [2023, 2023], "population": [100000, 100000]})
+    panel = harmonize.build_panel(long, population=pop).set_index("unit_code")
+    assert panel.loc["6101", "konghucu_ub"] == 400 and panel.loc["6101", "konghucu_ub_is_lainnya"]
+    assert panel.loc["6172", "konghucu_ub"] == 2316 and not panel.loc["6172", "konghucu_ub_is_lainnya"]
+    assert abs(panel.loc["6101", "konghucu_ub_share_pop"] - 0.004) < 1e-9

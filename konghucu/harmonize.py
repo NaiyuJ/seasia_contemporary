@@ -222,6 +222,11 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     wide["total_is_sum"] = wide["total"].notna() & wide["total"].eq(summed)
     if "konghucu" in wide.columns:
         wide["konghucu_share"] = wide["konghucu"] / wide["total"]
+        # tables without a Konghucu column fold it into 'Lainnya' (with Kepercayaan): an upper bound
+        wide["konghucu_ub"] = wide["konghucu"]
+        if "lainnya" in wide.columns:
+            wide["konghucu_ub"] = wide["konghucu_ub"].fillna(wide["lainnya"])
+        wide["konghucu_ub_is_lainnya"] = wide["konghucu"].isna() & wide["konghucu_ub"].notna()
     if pop is not None:
         wide["total_to_pop"] = wide["total"] / wide["population"]
         # a table from a kabupaten domain whose total is under 30% of the official population
@@ -241,6 +246,7 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
             wide = wide[~bad].copy()
         if "konghucu" in wide.columns:
             wide["konghucu_share_pop"] = wide["konghucu"] / wide["population"]
+            wide["konghucu_ub_share_pop"] = wide["konghucu_ub"] / wide["population"]
     return wide.sort_values(["unit_code", "year", "semester"]).reset_index(drop=True)
 
 

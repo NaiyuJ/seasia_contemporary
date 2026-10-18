@@ -23,7 +23,7 @@ from .religion import LONG_COLUMNS, canonical_religion, norm_label, norm_unit_na
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
-PARSER_VERSION = "2026-10-18a"  # bump when a parsing change should invalidate dalam-angka-extract's per-book cache
+PARSER_VERSION = "2026-10-18b"  # bump when a parsing change should invalidate dalam-angka-extract's per-book cache
 
 RELS = ["islam", "kristen", "protestan", "katolik", "katholik", "hindu", "budha", "buddha", "konghucu", "khonghucu"]
 TOC = re.compile(r"(?i)daftar tabel|list of tables|daftar isi|table of contents|daftar gambar")
@@ -163,6 +163,10 @@ def parse_rows(rows: List[List[object]], text: str, ref: str, province_code: str
         return pd.DataFrame(columns=LONG_COLUMNS + ["level"])
     percent = is_percent_table(rows, cols, hdr)
     year = year_from_title(text, book_year - 1 if book_year else None)
+    # a yearbook reports the previous year (sometimes the one before); any other year read
+    # from the page is a stray number (a census reference, the book's own year)
+    if book_year and year not in (book_year - 1, book_year - 2):
+        year = book_year - 1
     tot_i = total_row_index(rows, cols, hdr, unit_hint) if not percent else _percent_total_row(rows, cols, hdr)
     out = []
     for i, r in enumerate(rows):
