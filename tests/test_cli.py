@@ -54,5 +54,14 @@ def test_dalam_angka_extract_uses_cache(tmp_path, monkeypatch, capsys):
     cli.main(args)
     cli.main(args)
     assert len(calls) == 1 and "taken from the cache" in capsys.readouterr().out
+    # a year off the book's year is corrected from the catalogue title
+    (tmp_path / "cat.csv").write_text("domain,pub_id,title\n6101,abc,Kabupaten Sambas Dalam Angka 2024\n")
+    def wrong_year(path, debug=False, title=None):
+        d = fake_extract(path)
+        d["year"] = 2088
+        return d
+    monkeypatch.setattr(dalam_angka, "extract_book", wrong_year)
+    cli.main(args[:-2] + ["--catalogue", str(tmp_path / "cat.csv"), "--no-cache"])
+    assert pd.read_csv(tmp_path / "out.csv")["year"].iloc[0] == 2023
     cli.main(args + ["--no-cache"])
     assert len(calls) == 2

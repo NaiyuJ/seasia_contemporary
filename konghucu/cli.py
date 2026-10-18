@@ -336,6 +336,16 @@ def cmd_dalam_angka_extract(a):
     if reused:
         print(f"{reused} books taken from the cache ({cache}); pass --no-cache to read them again")
     df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=LONG_COLUMNS + ["level"])
+    # the data year is the catalogue's book year minus one (or two); a year read off the page
+    # that disagrees (a census reference, a page number taken for a year) is corrected here
+    book_year = {k: int(m.group(1)) for k, v in titles.items() for m in [re.search(r"(20\d\d)\s*$", str(v).strip())] if m}
+    if len(df):
+        by = df["ref"].str.replace("da:", "", regex=False).str.replace(":", "_", regex=False).map(book_year)
+        bad = by.notna() & ~((df["year"] == by - 1) | (df["year"] == by - 2))
+        if bad.any():
+            print(f"{int(bad.sum())} rows from {df.loc[bad, 'ref'].nunique()} books had a year off the book's year; "
+                  f"set to the book year minus one")
+            df.loc[bad, "year"] = by[bad] - 1
     df.to_csv(_out(a.out), index=False)
     kab = df[df["level"] != "kecamatan"]
     print(f"{len(df)} rows ({len(kab)} kabupaten/kota-level) from {df['ref'].nunique()} books -> {a.out}")

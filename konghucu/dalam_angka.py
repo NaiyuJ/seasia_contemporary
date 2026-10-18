@@ -401,8 +401,8 @@ def extract_book(path: str | Path, domain: Optional[str] = None, pub_id: Optiona
     with pdf_cm as pdf:
         head = " ".join((pdf.pages[i].extract_text() or "") for i in range(min(3, len(pdf.pages))))
         if book_year is None:
-            ym = re.search(r"(?i)dalam angka\s*(20\d\d)", head) or re.search(r"\b(20\d\d)\b", head)
-            book_year = int(ym.group(1)) if ym else None
+            ym = re.search(r"(?i)dalam angka\s*(20[0-3]\d)", head) or re.search(r"\b(20[0-3]\d)\b", head)
+            book_year = int(ym.group(1)) if ym else None  # 2084 is a page count, not a year
         hm = re.search(r"(?i)\b(kecamatan|distrik|kapanewon|kemantren)\s+[A-Za-z' ]{2,40}?\s+dalam angka", head)
         if hm:
             return done(empty, "booklet", f"per-{hm.group(1).lower()} booklet, skipped")
