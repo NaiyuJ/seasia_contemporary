@@ -43,7 +43,7 @@ def test_dalam_angka_extract_uses_cache(tmp_path, monkeypatch, capsys):
     def fake_extract(path, debug=False, title=None):
         calls.append(path)
         d = pd.DataFrame([dict(source="pdf_da", province_code="61", unit_code="6101", unit_name="Kabupaten Sambas", year=2023,
-                               semester=None, religion="islam", count=1.0, ref="da:6101:x", level="kabupaten")])
+                               semester=None, religion="islam", count=1.0, ref="da:6101:abc", level="kabupaten")])
         d.attrs["status"] = "ok"
         return d
     monkeypatch.setattr(dalam_angka, "extract_book", fake_extract)
