@@ -53,12 +53,15 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
     from konghucu.religion import PROVINCES
     prov_of = {squash_unit_name(n): c for c, n in PROVINCES.items()}
     prov_of.update({"daerahkhususibukotajakarta": "31", "dkijakarta": "31", "daerahistimewayogyakarta": "34"})
+
     d["prov"] = d["provinsi"].map(lambda s: prov_of.get(squash_unit_name(str(s))))
     d["key"] = d["kabupaten_kota"].map(name_key)
     d["lvl"] = d["kabupaten_kota"].map(unit_level)
 
     nat = codes.drop_duplicates(["unit_key"], keep=False)  # name unique in the country: province may be stale
     nat_code = dict(zip(nat["unit_key"], nat["unit_code"]))  # (BKPM files Sorong under Papua Barat Daya; BPS codes do not)
+    natl = codes.drop_duplicates(["level", "unit_key"], keep=False)  # Kabupaten Sorong vs Kota Sorong
+    natl_code = dict(zip(zip(natl["level"], natl["unit_key"]), natl["unit_code"]))
     from konghucu.religion import norm_label
     full = codes.assign(k=codes["unit_name"].map(lambda n: norm_label(n).replace(" ", ""))).drop_duplicates("k", keep=False)
     full_code = dict(zip(full["k"], full["unit_code"]))  # 'kotabaru' == 'Kota Baru' with the prefix kept
@@ -66,7 +69,7 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
 
     def code_of(r):
         return (key_to_code.get((r.prov, r.lvl, r.key)) or key_prov.get((r.prov, r.key)) or nat_code.get(r.key)
-                or full_code.get(r.full) or full_code.get("kota" + r.full))
+                or natl_code.get((r.lvl, r.key)) or full_code.get(r.full) or full_code.get("kota" + r.full))
     pairs = d[["prov", "lvl", "key", "full"]].drop_duplicates()
     pairs["unit_code"] = pairs.apply(code_of, axis=1)
     d = d.merge(pairs, on=["prov", "lvl", "key", "full"], how="left")
