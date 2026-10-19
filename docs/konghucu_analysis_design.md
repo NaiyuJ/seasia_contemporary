@@ -103,7 +103,11 @@ Papua / Selayar / Padang Sidempuan fixes (no "not matched" list printed).
 | … Δlog(count) | 51 | −0.007 (0.022) | 0.007 (0.014) | 0.010 (0.027) |
 | … without Singkawang | 50 | −0.005 (0.007) | −0.007 (0.006) | 0.015 (0.009) |
 | TWFE y_exact 2019–2023 | 351 | −0.005 (0.033) | 0.007 (0.045) | 0.107 (0.100) |
+| … any-investment dummy (per 1,000) | 51 | 0.33 (0.30) | 0.34 (0.32) | 0.38 (0.40) |
+| … log flow × high baseline | 51 | −0.004 (0.012) | −0.022 (0.026) | −0.062 (0.071) |
 | long-diff y_ub | 113 | 0.023 (0.013) | 0.015 (0.013) | 0.018 (0.012) |
+| … any-investment dummy (per 1,000) | 113 | 0.26 (0.13) | 0.23 (0.12) | 0.14 (0.11) |
+| … log flow × high baseline | 113 | 0.004 (0.008) | 0.004 (0.010) | −0.013 (0.027) |
 | … + province FE | 113 | 0.036 (0.025) | 0.034 (0.028) | 0.013 (0.015) |
 | … without Singkawang | 112 | 0.019 (0.012) | 0.014 (0.012) | 0.021 (0.011) |
 | TWFE y_ub 2019–2023 | 736 | 0.029 (0.048) | 0.034 (0.051) | −0.072 (0.112) |
@@ -121,6 +125,13 @@ points) adding more than 0.2 Konghucu per 1,000 residents; typical exact-sample 
 The upper-bound sample gives a marginally positive coefficient (p = 0.09) that does not survive
 province fixed effects, the China+HK or all-FDI measures, or the TWFE panel, and is of the same
 order as the Catholic-share placebo (p = 0.05 with China+HK); it is read as noise from the
-"Lainnya" column. Power is the binding constraint: two years, 51 units and a stock outcome
+"Lainnya" column. The any-investment dummy gives a positive point estimate of about 0.3 per 1,000 in both
+samples (units with any Chinese investment in 2022–2023 versus none), significant only in the
+upper-bound sample (p = 0.05) and not specific to Chinese money in the exact sample; the
+interaction with a high baseline Konghucu level is zero or negative, so whatever moves is not
+concentrated where Chinese Indonesians live, which is the opposite of what the re-registration
+mechanism predicts. Treated units are larger and more urban, so the dummy comparison needs the
+province-fixed-effect and high-baseline versions (added after this run). Power is the binding
+constraint: two years, 51 units and a stock outcome
 that moves little; the panel needs earlier yearbook years and the "any investment" and
 "high baseline" specifications above before the null is informative.

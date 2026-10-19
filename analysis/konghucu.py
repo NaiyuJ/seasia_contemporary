@@ -228,8 +228,12 @@ def main(argv=None):
                      "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
         res, d = long_difference(tp, inv, a.inv_col, treatment="any")
         rows.append(_row(f"long-diff {y} any-investment dummy", res))
+        res, d = long_difference(tp, inv, a.inv_col, treatment="any", province_fe=True)
+        rows.append(_row(f"long-diff {y} any-investment dummy +prov FE", res))
         res, d = long_difference(tp, inv, a.inv_col, interact_high=True)
         rows.append(_row(f"long-diff {y} x high baseline (interaction)", res, "d_inv_x_high"))
+        res, d = long_difference(tp, inv, a.inv_col, treatment="any", interact_high=True)
+        rows.append(_row(f"long-diff {y} any-investment dummy x high baseline", res, "d_inv_x_high"))
         if "6172" in set(tp["unit_code"]):  # Singkawang drives most of the movement in the exact sample
             res, d = long_difference(tp[tp["unit_code"] != "6172"], inv, a.inv_col)
             rows.append({"spec": f"long-diff {y} without Singkawang", "n": int(res.nobs),
