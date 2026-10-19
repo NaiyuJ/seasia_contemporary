@@ -106,7 +106,10 @@ python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
        --inputs data/konghucu/bps_long.csv data/konghucu/arcgis_long.csv data/konghucu/pdf_long.csv
 # harmonize also writes konghucu_breaks.csv (source-definition switches) and total_outliers.csv
 # (cells to check against the raw table and, if wrong, list in konghucu/drop_cells.csv)
+python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col value
+                                                         # descriptives, 2021->2023 changes, long-difference / TWFE / placebos
 ```
+See `docs/konghucu_analysis_design.md` for the outcome, samples and identification caveats.
 
 Output `data/konghucu/religion_panel.csv`: one row per unit × year × semester
 (semester 0 = annual source), one column per religion, `konghucu_share`, and
