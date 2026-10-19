@@ -76,7 +76,7 @@ def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.Da
     # is the usual reason for a large apparent change (Mojokerto 0.30 -> 0.03)
     src = d.assign(src=d["ref"].astype(str).str.split(":").str[0]).pivot_table(
         index="unit_code", columns="year", values="src", aggfunc="first").reindex(out.index)
-    out["same_source"] = src[t0] == src[t1]
+    out["same_source"] = (src[t0] == src[t1]).fillna(False).astype(bool)
     return out.reset_index()
 
 

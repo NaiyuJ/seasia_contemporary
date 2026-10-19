@@ -102,6 +102,11 @@ UNIT_ALIASES = {  # table spelling -> BPS domain spelling (both normalised, spac
     "pangkajenekepulauan": "pangkajenedankepulauan",
     "tanjungjabungtimur": "tanjungjabungtimur",
     "tanjabbarat": "tanjungjabungbarat",
+    "tobasamosir": "toba",          # renamed 2020
+    "mahakamhulu": "mahakamulu",
+    "tajounauna": "tojounauna",
+    "fakfak": "fakfak",
+    "kotabaru": "kotabaru",
     "tanjabtimur": "tanjungjabungtimur",
     "kepulauanseribu": "kepulauanseribu",
     "jakartapusat": "jakartapusat",

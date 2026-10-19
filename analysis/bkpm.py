@@ -57,11 +57,19 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
     d["key"] = d["kabupaten_kota"].map(name_key)
     d["lvl"] = d["kabupaten_kota"].map(unit_level)
 
+    nat = codes.drop_duplicates(["unit_key"], keep=False)  # name unique in the country: province may be stale
+    nat_code = dict(zip(nat["unit_key"], nat["unit_code"]))  # (BKPM files Sorong under Papua Barat Daya; BPS codes do not)
+    from konghucu.religion import norm_label
+    full = codes.assign(k=codes["unit_name"].map(lambda n: norm_label(n).replace(" ", ""))).drop_duplicates("k", keep=False)
+    full_code = dict(zip(full["k"], full["unit_code"]))  # 'kotabaru' == 'Kota Baru' with the prefix kept
+    d["full"] = d["kabupaten_kota"].map(lambda n: norm_label(re.sub(r"(?i)^(kabupaten|kota adm\.?|kota)\s+", "", str(n))).replace(" ", ""))
+
     def code_of(r):
-        return key_to_code.get((r.prov, r.lvl, r.key)) or key_prov.get((r.prov, r.key))
-    pairs = d[["prov", "lvl", "key"]].drop_duplicates()
+        return (key_to_code.get((r.prov, r.lvl, r.key)) or key_prov.get((r.prov, r.key)) or nat_code.get(r.key)
+                or full_code.get(r.full) or full_code.get("kota" + r.full))
+    pairs = d[["prov", "lvl", "key", "full"]].drop_duplicates()
     pairs["unit_code"] = pairs.apply(code_of, axis=1)
-    d = d.merge(pairs, on=["prov", "lvl", "key"], how="left")
+    d = d.merge(pairs, on=["prov", "lvl", "key", "full"], how="left")
     um = d[d["unit_code"].isna()].groupby(["provinsi", "kabupaten_kota"])[value_col].sum().sort_values(ascending=False)
     if len(um):
         log(f"{len(um)} kabupaten/kota names not matched to a BPS code (their investment is dropped; largest first):")
@@ -71,8 +79,8 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
     pma = d[d["status_penanaman_modal"] == "PMA"]
     g = pma.groupby(["unit_code", "year"])
     out = pd.DataFrame({
-        "china_usd_k": g.apply(lambda x: x.loc[x["origin"] == "china", value_col].sum()),
-        "hk_usd_k": g.apply(lambda x: x.loc[x["origin"] == "hk", value_col].sum()),
+        "china_usd_k": pma[value_col].where(pma["origin"] == "china", 0).groupby([pma["unit_code"], pma["year"]]).sum(),
+        "hk_usd_k": pma[value_col].where(pma["origin"] == "hk", 0).groupby([pma["unit_code"], pma["year"]]).sum(),
         "fdi_usd_k": g[value_col].sum(),
     }).reset_index()
     pmdn = d[d["status_penanaman_modal"] == "PMDN"].groupby(["unit_code", "year"])[value_col].sum().rename("pmdn_usd_k")
