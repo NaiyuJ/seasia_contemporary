@@ -44,13 +44,29 @@ def load_panel(path: str, codes: Optional[str] = None) -> pd.DataFrame:
     return p
 
 
+# provinces whose 'Lainnya' is an indigenous religion (Marapu in NTT, Kaharingan in Kalimantan
+# Tengah, local religions in Papua), so the upper bound says nothing about Konghucu there
+UB_EXCLUDE_PROVINCES = ("53", "62", "91", "92", "93", "94", "95", "96")
+COUNT_OF = {"y_exact": "konghucu", "y_ub": "konghucu_ub", "share_buddha": "buddha", "share_kristen": "kristen",
+            "share_katolik": "katolik"}
+
+
 def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.DataFrame:
-    """Units observed (Dukcapil-type) in both years: level in each and the change."""
+    """Units observed (Dukcapil-type) in both years: level in each and three changes:
+    `change` in per-1,000 with each year's own population, `change_fixedpop` with the t0
+    population for both years (so population growth alone does not read as a fall), and
+    `dlog_count` = log(1+count_t1) - log(1+count_t0)."""
     d = p[p["dukcapil_type"] & p["year"].isin([t0, t1]) & p[y].notna()]
+    if y == "y_ub":
+        d = d[~d["province_code"].isin(UB_EXCLUDE_PROVINCES)]
     w = d.pivot_table(index="unit_code", columns="year", values=y)
     w = w.dropna(subset=[t0, t1])
     out = w.rename(columns={t0: f"y{t0}", t1: f"y{t1}"})
     out["change"] = out[f"y{t1}"] - out[f"y{t0}"]
+    cnt = d.pivot_table(index="unit_code", columns="year", values=COUNT_OF[y]).reindex(out.index)
+    pop0 = d[d["year"] == t0].set_index("unit_code")["population"].reindex(out.index)
+    out["change_fixedpop"] = (cnt[t1] - cnt[t0]) / pop0 * 1000
+    out["dlog_count"] = np.log1p(cnt[t1]) - np.log1p(cnt[t0])
     base = d.drop_duplicates("unit_code").set_index("unit_code")
     for c in ["unit_name", "province_code"]:
         if c in base.columns:
@@ -73,7 +89,9 @@ def describe(p: pd.DataFrame) -> dict:
         out[f"two_period_{y}"] = tp
         out[f"change_summary_{y}"] = pd.Series({
             "units": len(tp), "mean_change": tp["change"].mean(), "median_change": tp["change"].median(),
-            "share_increasing": (tp["change"] > 0).mean(), "share_decreasing": (tp["change"] < 0).mean()}).round(4)
+            "mean_change_fixedpop": tp["change_fixedpop"].mean(), "median_change_fixedpop": tp["change_fixedpop"].median(),
+            "share_count_up": (tp["dlog_count"] > 0).mean(), "share_count_down": (tp["dlog_count"] < 0).mean(),
+            "share_count_unchanged": (tp["dlog_count"] == 0).mean()}).round(4)
     return out
 
 
@@ -90,7 +108,7 @@ def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc:
 
 
 def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int = 2021, t1: int = 2023,
-                    province_fe: bool = False):
+                    province_fe: bool = False, outcome: str = "change_fixedpop"):
     """change in y on the change in (log 1+) investment between t0 and t1, controlling for
     the baseline level and log population; HC1 or province-clustered SE."""
     iv = inv.pivot_table(index="unit_code", columns="year", values=inv_col, aggfunc="sum").reindex(columns=[t0, t1])
@@ -103,7 +121,7 @@ def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int =
     X = d[["d_inv", "inv_base", f"y{t0}", "log_pop"]].copy()
     if province_fe and "province_code" in d.columns:
         X = pd.concat([X, pd.get_dummies(d["province_code"], prefix="prov", drop_first=True, dtype=float)], axis=1)
-    return ols(d["change"].values, X, cluster=d["province_code"] if province_fe else None), d
+    return ols(d[outcome].values, X, cluster=d["province_code"] if province_fe else None), d
 
 
 def twfe(p: pd.DataFrame, y: str, inv: pd.DataFrame, inv_col: str, years=(2019, 2023)):
@@ -153,11 +171,11 @@ def main(argv=None):
         print(desc[f"change_summary_{y}"].to_string())
         tp = desc[f"two_period_{y}"]
         tp.to_csv(out / f"two_period_{y}.csv", index=False)
-        cols = [c for c in ["unit_code", "unit_name", "y2021", "y2023", "change"] if c in tp.columns]
-        print("-- largest increases:")
-        print(tp.nlargest(8, "change")[cols].round(3).to_string(index=False))
+        cols = [c for c in ["unit_code", "unit_name", "y2021", "y2023", "change_fixedpop", "dlog_count"] if c in tp.columns]
+        print("-- largest increases (per 1,000, base-year population):")
+        print(tp.nlargest(8, "change_fixedpop")[cols].round(3).to_string(index=False))
         print("-- largest decreases:")
-        print(tp.nsmallest(5, "change")[cols].round(3).to_string(index=False))
+        print(tp.nsmallest(5, "change_fixedpop")[cols].round(3).to_string(index=False))
     if not a.investment:
         print("\nno --investment file: regressions skipped. Expected: CSV with unit_code (BPS 4-digit), year, "
               f"and a value column (--inv-col, default 'value'); one row per kabupaten-year (or several, summed).")
@@ -172,6 +190,13 @@ def main(argv=None):
         for fe in (False, True):
             res, d = long_difference(tp, inv, a.inv_col, province_fe=fe)
             rows.append({"spec": f"long-diff {y}{' +prov FE' if fe else ''}", "n": int(res.nobs),
+                         "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
+        res, d = long_difference(tp, inv, a.inv_col, outcome="dlog_count")
+        rows.append({"spec": f"long-diff {y} dlog(count)", "n": int(res.nobs),
+                     "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
+        if "6172" in set(tp["unit_code"]):  # Singkawang drives most of the movement in the exact sample
+            res, d = long_difference(tp[tp["unit_code"] != "6172"], inv, a.inv_col)
+            rows.append({"spec": f"long-diff {y} without Singkawang", "n": int(res.nobs),
                          "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
         res, d = twfe(p, y, inv, a.inv_col)
         rows.append({"spec": f"TWFE {y} 2019-2023", "n": int(res.nobs), "coef_d_inv": res.params["inv_w"],

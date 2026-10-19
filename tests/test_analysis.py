@@ -29,7 +29,8 @@ def test_two_period_and_long_difference_recover_a_planted_effect(tmp_path):
     p = an.load_panel(str(tmp_path / "panel.csv"))
     assert p["dukcapil_type"].all()
     tp = an.two_period(p, "y_exact")
-    assert len(tp) == 60 and set(tp.columns) >= {"y2021", "y2023", "change", "log_pop"}
+    assert len(tp) == 60 and set(tp.columns) >= {"y2021", "y2023", "change", "change_fixedpop", "dlog_count", "log_pop"}
+    assert np.allclose(tp["change"], tp["change_fixedpop"])  # constant population in the synthetic panel
     res, d = an.long_difference(tp, inv, "value")
     assert abs(res.params["d_inv"] - 0.5) < 0.15
     res_fe, _ = an.long_difference(tp, inv, "value", province_fe=True)
@@ -52,3 +53,12 @@ def test_kemenag_type_cells_are_excluded_and_cli_runs(tmp_path, capsys):
              "--investment", str(tmp_path / "inv.csv")])
     out = capsys.readouterr().out
     assert "TWFE y_exact" in out and (tmp_path / "out" / "regressions.csv").exists()
+
+
+def test_upper_bound_sample_excludes_indigenous_religion_provinces(tmp_path):
+    panel, inv = _panel(n=20)
+    panel["unit_code"] = panel["unit_code"].where(panel["unit_code"] != "1100", "5301")  # one NTT unit
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    p = an.load_panel(str(tmp_path / "panel.csv"))
+    assert "5301" in set(an.two_period(p, "y_exact")["unit_code"])
+    assert "5301" not in set(an.two_period(p, "y_ub")["unit_code"])

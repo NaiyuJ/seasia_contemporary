@@ -17,6 +17,10 @@ Two versions, reported separately:
 - `y_ub`: Konghucu folded into *Lainnya* (with Kepercayaan); an upper bound. Used as a robustness
   sample, never pooled with the exact one without a flag.
 
+`two_period_*.csv` carries three changes per unit: `change` (per 1,000 with each year's own
+population), `change_fixedpop` (both years over the 2021 population, so population growth alone
+does not read as a fall; the regression default) and `dlog_count` (log(1+count) difference).
+
 ## Sample
 
 Only *Dukcapil-type* cells: the religion total is within 0.8 to 1.25 of the official population.
@@ -26,6 +30,15 @@ kabupaten and count a different thing; mixing the two creates spurious jumps (se
 
 Main comparison: 2021 to 2023 (yearbooks published 2022 and 2024, BPS API tables). Units observed
 in both years with an exact count: 52; with exact or upper bound: 131 (as of October 2026).
+
+The upper-bound sample excludes provinces whose *Lainnya* is an indigenous religion rather than
+Konghucu: Nusa Tenggara Timur (Marapu; Sumba Barat Daya shows 17 per 1,000), Kalimantan Tengah
+(Kaharingan) and the Papua provinces (`UB_EXCLUDE_PROVINCES`).
+
+What the 2021 to 2023 descriptives show (October 2026 run): the registered stock barely moves in
+two years. The median change is zero; most of the movement is Singkawang (5.9 to 9.4 per 1,000,
+1,542 to 2,316 people) and Pontianak (+0.5). A specification without Singkawang is reported with
+every long difference.
 
 ## Specifications
 
