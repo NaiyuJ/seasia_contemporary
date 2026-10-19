@@ -253,6 +253,9 @@ def cmd_bps_publications(a):
                              "size": r.get("size"), "pdf": r.get("pdf")})
         print(f"  [{i}/{len(a.domains)}] {dom}: {n} publications matching {keywords}", flush=True)
     df = pd.DataFrame(rows, columns=["domain", "pub_id", "title", "rl_date", "size", "pdf"])
+    if Path(a.out).exists():  # keep earlier listings: dalam-angka-extract names books by this catalogue
+        old = pd.read_csv(a.out, dtype=str)
+        df = pd.concat([old, df], ignore_index=True).drop_duplicates(["domain", "pub_id"], keep="last")
     if a.years:
         df = df[df["title"].astype(str).str.contains("|".join(a.years), regex=True)]
     if a.title_regex:
@@ -346,6 +349,11 @@ def cmd_dalam_angka_extract(a):
             print(f"{int(bad.sum())} rows from {df.loc[bad, 'ref'].nunique()} books had a year off the book's year; "
                   f"set to the book year minus one")
             df.loc[bad, "year"] = by[bad] - 1
+        absurd = by.isna() & ~df["year"].between(2000, 2030)
+        if absurd.any():
+            print(f"{int(absurd.sum())} rows from {df.loc[absurd, 'ref'].nunique()} books not in the catalogue carry an "
+                  f"impossible year; dropped (re-run bps-publications so the catalogue lists them)")
+            df = df[~absurd]
     df.to_csv(_out(a.out), index=False)
     kab = df[df["level"] != "kecamatan"]
     print(f"{len(df)} rows ({len(kab)} kabupaten/kota-level) from {df['ref'].nunique()} books -> {a.out}")
