@@ -31,6 +31,7 @@ def test_two_period_and_long_difference_recover_a_planted_effect(tmp_path):
     tp = an.two_period(p, "y_exact")
     assert len(tp) == 60 and set(tp.columns) >= {"y2021", "y2023", "change", "change_fixedpop", "dlog_count", "log_pop"}
     assert np.allclose(tp["change"], tp["change_fixedpop"])  # constant population in the synthetic panel
+    assert tp["same_source"].all()
     res, d = an.long_difference(tp, inv, "value")
     assert abs(res.params["d_inv"] - 0.5) < 0.15
     res_fe, _ = an.long_difference(tp, inv, "value", province_fe=True)

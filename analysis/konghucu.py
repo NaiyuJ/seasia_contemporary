@@ -72,6 +72,11 @@ def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.Da
         if c in base.columns:
             out[c] = base[c]
     out["log_pop"] = d[d["year"] == t0].set_index("unit_code")["log_pop"]
+    # both years from the same kind of source (API table / yearbook)? a switch between them
+    # is the usual reason for a large apparent change (Mojokerto 0.30 -> 0.03)
+    src = d.assign(src=d["ref"].astype(str).str.split(":").str[0]).pivot_table(
+        index="unit_code", columns="year", values="src", aggfunc="first").reindex(out.index)
+    out["same_source"] = src[t0] == src[t1]
     return out.reset_index()
 
 
@@ -91,7 +96,8 @@ def describe(p: pd.DataFrame) -> dict:
             "units": len(tp), "mean_change": tp["change"].mean(), "median_change": tp["change"].median(),
             "mean_change_fixedpop": tp["change_fixedpop"].mean(), "median_change_fixedpop": tp["change_fixedpop"].median(),
             "share_count_up": (tp["dlog_count"] > 0).mean(), "share_count_down": (tp["dlog_count"] < 0).mean(),
-            "share_count_unchanged": (tp["dlog_count"] == 0).mean()}).round(4)
+            "share_count_unchanged": (tp["dlog_count"] == 0).mean(),
+            "units_same_source": int(tp["same_source"].sum())}).round(4)
     return out
 
 
@@ -171,7 +177,7 @@ def main(argv=None):
         print(desc[f"change_summary_{y}"].to_string())
         tp = desc[f"two_period_{y}"]
         tp.to_csv(out / f"two_period_{y}.csv", index=False)
-        cols = [c for c in ["unit_code", "unit_name", "y2021", "y2023", "change_fixedpop", "dlog_count"] if c in tp.columns]
+        cols = [c for c in ["unit_code", "unit_name", "y2021", "y2023", "change_fixedpop", "dlog_count", "same_source"] if c in tp.columns]
         print("-- largest increases (per 1,000, base-year population):")
         print(tp.nlargest(8, "change_fixedpop")[cols].round(3).to_string(index=False))
         print("-- largest decreases:")
@@ -193,6 +199,9 @@ def main(argv=None):
                          "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
         res, d = long_difference(tp, inv, a.inv_col, outcome="dlog_count")
         rows.append({"spec": f"long-diff {y} dlog(count)", "n": int(res.nobs),
+                     "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
+        res, d = long_difference(tp[tp["same_source"]], inv, a.inv_col)
+        rows.append({"spec": f"long-diff {y} same-source pairs only", "n": int(res.nobs),
                      "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
         if "6172" in set(tp["unit_code"]):  # Singkawang drives most of the movement in the exact sample
             res, d = long_difference(tp[tp["unit_code"] != "6172"], inv, a.inv_col)
