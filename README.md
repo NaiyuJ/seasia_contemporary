@@ -106,7 +106,8 @@ python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
        --inputs data/konghucu/bps_long.csv data/konghucu/arcgis_long.csv data/konghucu/pdf_long.csv
 # harmonize also writes konghucu_breaks.csv (source-definition switches) and total_outliers.csv
 # (cells to check against the raw table and, if wrong, list in konghucu/drop_cells.csv)
-python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col value
+python -m analysis.bkpm --src /path/to/bkpm_realisasi_2010_2026Q2_all.csv   # -> data/raw/china_investment.csv
+python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col china_usd_k
                                                          # descriptives, 2021->2023 changes, long-difference / TWFE / placebos
 ```
 See `docs/konghucu_analysis_design.md` for the outcome, samples and identification caveats.

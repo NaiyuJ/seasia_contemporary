@@ -42,11 +42,13 @@ every long difference.
 
 ## Specifications
 
-1. Long difference: Δy(2021→2023) on Δlog(1+investment) with the baseline level of y, log
-   population and log baseline investment; HC1 standard errors, and a version with province fixed
-   effects and province-clustered errors.
-2. Two-way fixed effects on the unbalanced 2019–2023 panel: y_it on log(1+investment_it) with unit
-   and year effects (within transformation), errors clustered by unit.
+1. Long difference: Δy(2021→2023), the outcome being a stock, on log(1 + Chinese investment
+   realised in 2022–2023), controlling for log(1 + cumulative Chinese investment up to 2021), the
+   baseline level of y and log population; HC1 standard errors, and a version with province fixed
+   effects and province-clustered errors. Also reported: Δlog(1+count) as outcome, same-source
+   pairs only, and the sample without Singkawang.
+2. Two-way fixed effects on the unbalanced 2019–2023 panel: y_it on log(1 + cumulative Chinese
+   investment up to t) with unit and year effects (within transformation), errors clustered by unit.
 3. Placebos: the same long difference with Buddhist, Protestant and Catholic shares as outcomes.
    Investment that moves Konghucu registration but not Buddhism (the religion most Chinese
    Indonesians hold) is the pattern the identity argument predicts; a move in all of them points
@@ -54,10 +56,15 @@ every long difference.
 
 ## Investment variable
 
-Expected file: one row per kabupaten-year with `unit_code` (BPS 4-digit), `year` and a value
-column, realised investment from China (BKPM). Several rows per kabupaten-year are summed. Units
-without a row are treated as zero investment. log(1+x) because the distribution is extremely
-skewed with many zeros; a results table in levels (per capita) is a sensible second version.
+`python -m analysis.bkpm --src <BKPM realisasi CSV>` builds `data/raw/china_investment.csv` from
+BKPM's quarterly realisation file (PMA/PMDN, source country, kabupaten name, thousand USD): per
+kabupaten-year `china_usd_k` (mainland China: Tiongkok / R.R. Tiongkok / China), `hk_usd_k`
+(Hong Kong, kept apart because mainland money is routed through it), `fdi_usd_k` (all PMA),
+`pmdn_usd_k` (domestic) and `china_plus_hk_usd_k`. Kabupaten names are matched to BPS codes with
+the religion tables' normaliser; the script prints the unmatched names and their investment.
+Units without a row are zero investment. log(1+x) because the distribution is extremely skewed
+with many zeros; run `--inv-col china_plus_hk_usd_k` and `--inv-col fdi_usd_k` (all foreign
+investment, a placebo for "it is just FDI") as further columns of the results table.
 
 ## Identification caveats
 

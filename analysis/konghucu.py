@@ -115,12 +115,12 @@ def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc:
 
 def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int = 2021, t1: int = 2023,
                     province_fe: bool = False, outcome: str = "change_fixedpop"):
-    """change in y on the change in (log 1+) investment between t0 and t1, controlling for
-    the baseline level and log population; HC1 or province-clustered SE."""
-    iv = inv.pivot_table(index="unit_code", columns="year", values=inv_col, aggfunc="sum").reindex(columns=[t0, t1])
-    iv = iv.fillna(0)
-    iv["d_inv"] = np.log1p(iv[t1]) - np.log1p(iv[t0])
-    iv["inv_base"] = np.log1p(iv[t0])
+    """change in y (a stock) on log(1 + investment flow realised in the window t0+1..t1),
+    controlling for log(1 + cumulative investment up to t0), the baseline level of y and log
+    population; HC1 or province-clustered SE. `d_inv` is the window flow."""
+    flow = inv[inv["year"].between(t0 + 1, t1)].groupby("unit_code")[inv_col].sum()
+    stock = inv[inv["year"] <= t0].groupby("unit_code")[inv_col].sum()
+    iv = pd.DataFrame({"d_inv": np.log1p(flow), "inv_base": np.log1p(stock)}).fillna(0)
     d = tp.merge(iv[["d_inv", "inv_base"]], left_on="unit_code", right_index=True, how="left")
     d["d_inv"] = d["d_inv"].fillna(0)
     d["inv_base"] = d["inv_base"].fillna(0)
@@ -131,10 +131,14 @@ def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int =
 
 
 def twfe(p: pd.DataFrame, y: str, inv: pd.DataFrame, inv_col: str, years=(2019, 2023)):
-    """y_it on log(1+investment_it) with unit and year fixed effects, SE clustered by unit."""
+    """y_it (a stock) on log(1 + cumulative investment up to t) with unit and year fixed
+    effects (within transformation), SE clustered by unit."""
     d = p[p["dukcapil_type"] & p["year"].between(*years) & p[y].notna()].copy()
-    iv = inv.groupby(["unit_code", "year"])[inv_col].sum().rename("inv").reset_index()
-    d = d.merge(iv, on=["unit_code", "year"], how="left")
+    iv = inv.groupby(["unit_code", "year"])[inv_col].sum().unstack("year").fillna(0)
+    iv = iv.reindex(columns=range(int(iv.columns.min()), years[1] + 1), fill_value=0).cumsum(axis=1)
+    cum = iv.stack().rename("inv").reset_index()
+    cum.columns = ["unit_code", "year", "inv"]
+    d = d.merge(cum, on=["unit_code", "year"], how="left")
     d["inv"] = np.log1p(d["inv"].fillna(0))
     d = d[d.groupby("unit_code")["year"].transform("size") >= 2]
     # within transformation for the unit effect, year dummies for the year effect

@@ -13,13 +13,15 @@ def _panel(seed=0, n=60, effect=0.5):
         code = f"{11 + i % 6}{i:02d}"  # six provinces
         pop = rng.integers(80_000, 900_000)
         base = rng.uniform(0, 3)
-        x = {2019: 0.0, 2020: 0.0, 2021: 0.0, 2022: rng.uniform(0, 5), 2023: rng.uniform(0, 8)}
+        flow = {2019: 0.0, 2020: 0.0, 2021: 0.0, 2022: rng.uniform(0, 3000), 2023: rng.uniform(0, 5000)}
+        cum = {y: sum(flow[k] for k in flow if k <= y) for y in flow}
+        x = {y: np.log1p(cum[y]) for y in flow}  # the stock outcome responds to cumulative investment
         for y in range(2019, 2024):
             k = (base + effect * x[y] + rng.normal(0, 0.2)) * pop / 1000
             rows.append(dict(unit_code=code, year=y, population=pop, total=pop * 1.02, total_to_pop=1.02,
                              konghucu=max(k, 0), konghucu_ub=max(k, 0), buddha=pop * 0.01, kristen=pop * 0.05,
                              katolik=pop * 0.01, ref="da:x:y"))
-            inv.append(dict(unit_code=code, year=y, value=np.expm1(x[y])))
+            inv.append(dict(unit_code=code, year=y, value=flow[y]))
     return pd.DataFrame(rows), pd.DataFrame(inv)
 
 
@@ -63,3 +65,31 @@ def test_upper_bound_sample_excludes_indigenous_religion_provinces(tmp_path):
     p = an.load_panel(str(tmp_path / "panel.csv"))
     assert "5301" in set(an.two_period(p, "y_exact")["unit_code"])
     assert "5301" not in set(an.two_period(p, "y_ub")["unit_code"])
+
+
+def test_bkpm_conversion(tmp_path):
+    from analysis import bkpm
+    codes = pd.DataFrame({"unit_code": ["6101", "6172", "3171"], "unit_name": ["Kabupaten Sambas", "Kota Singkawang", "Kota Jakarta Pusat"],
+                          "province_code": ["61", "61", "31"]})
+    codes.to_csv(tmp_path / "codes.csv", index=False)
+    rows = [
+        dict(periode="2022 - Triwulan 1", status_penanaman_modal="PMA", negara="Tiongkok", provinsi="Kalimantan Barat",
+             kabupaten_kota="Kabupaten Sambas", investasi_us_ribu=100.0, year=2022, q=1),
+        dict(periode="2022 - Triwulan 2", status_penanaman_modal="PMA", negara="R.R. Tiongkok", provinsi="Kalimantan Barat",
+             kabupaten_kota="Kabupaten Sambas", investasi_us_ribu=50.0, year=2022, q=2),
+        dict(periode="2022 - Triwulan 2", status_penanaman_modal="PMA", negara="Hongkong, RRT", provinsi="Kalimantan Barat",
+             kabupaten_kota="Kabupaten Sambas", investasi_us_ribu=7.0, year=2022, q=2),
+        dict(periode="2022 - Triwulan 2", status_penanaman_modal="PMA", negara="Taiwan", provinsi="Kalimantan Barat",
+             kabupaten_kota="Kota Singkawang", investasi_us_ribu=9.0, year=2022, q=2),
+        dict(periode="2022 - Triwulan 3", status_penanaman_modal="PMDN", negara="Indonesia", provinsi="Daerah Khusus Ibukota Jakarta",
+             kabupaten_kota="Kota Adm. Jakarta Pusat", investasi_us_ribu=300.0, year=2022, q=3),
+        dict(periode="2022 - Triwulan 3", status_penanaman_modal="PMA", negara="China", provinsi="Kalimantan Barat",
+             kabupaten_kota="Kabupaten Nowhere", investasi_us_ribu=999.0, year=2022, q=3),
+    ]
+    pd.DataFrame(rows).to_csv(tmp_path / "bkpm.csv", index=False)
+    out = bkpm.convert(str(tmp_path / "bkpm.csv"), str(tmp_path / "codes.csv"), log=lambda *a: None).set_index(["unit_code", "year"])
+    assert out.loc[("6101", 2022), "china_usd_k"] == 150 and out.loc[("6101", 2022), "hk_usd_k"] == 7
+    assert out.loc[("6101", 2022), "fdi_usd_k"] == 157 and out.loc[("6101", 2022), "china_plus_hk_usd_k"] == 157
+    assert out.loc[("6172", 2022), "china_usd_k"] == 0 and out.loc[("6172", 2022), "fdi_usd_k"] == 9
+    assert out.loc[("3171", 2022), "pmdn_usd_k"] == 300
+    assert "Nowhere" not in str(out.index)
