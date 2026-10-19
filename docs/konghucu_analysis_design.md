@@ -104,9 +104,13 @@ Papua / Selayar / Padang Sidempuan fixes (no "not matched" list printed).
 | … without Singkawang | 50 | −0.005 (0.007) | −0.007 (0.006) | 0.015 (0.009) |
 | TWFE y_exact 2019–2023 | 351 | −0.005 (0.033) | 0.007 (0.045) | 0.107 (0.100) |
 | … any-investment dummy (per 1,000) | 51 | 0.33 (0.30) | 0.34 (0.32) | 0.38 (0.40) |
+| … any-investment dummy + province FE | 51 | 0.37 (0.39) | — | −0.20 (0.20) |
+| … any-investment dummy × high baseline | 51 | 0.19 (0.19) | — | 0.07 (0.07) |
 | … log flow × high baseline | 51 | −0.004 (0.012) | −0.022 (0.026) | −0.062 (0.071) |
 | long-diff y_ub | 113 | 0.023 (0.013) | 0.015 (0.013) | 0.018 (0.012) |
 | … any-investment dummy (per 1,000) | 113 | 0.26 (0.13) | 0.23 (0.12) | 0.14 (0.11) |
+| … any-investment dummy + province FE | 113 | 0.31 (0.20) | — | 0.12 (0.12) |
+| … any-investment dummy × high baseline | 113 | 0.14 (0.13) | — | −0.00 (0.04) |
 | … log flow × high baseline | 113 | 0.004 (0.008) | 0.004 (0.010) | −0.013 (0.027) |
 | … + province FE | 113 | 0.036 (0.025) | 0.034 (0.028) | 0.013 (0.015) |
 | … without Singkawang | 112 | 0.019 (0.012) | 0.014 (0.012) | 0.021 (0.011) |
@@ -130,8 +134,11 @@ samples (units with any Chinese investment in 2022–2023 versus none), signific
 upper-bound sample (p = 0.05) and not specific to Chinese money in the exact sample; the
 interaction with a high baseline Konghucu level is zero or negative, so whatever moves is not
 concentrated where Chinese Indonesians live, which is the opposite of what the re-registration
-mechanism predicts. Treated units are larger and more urban, so the dummy comparison needs the
-province-fixed-effect and high-baseline versions (added after this run). Power is the binding
-constraint: two years, 51 units and a stock outcome
+mechanism predicts. Treated units are larger and more urban. With province fixed effects the Chinese dummy keeps
+its point estimate (0.37 exact, 0.31 upper bound) but loses significance (p = 0.35 and 0.13),
+while the all-FDI dummy turns negative in the exact sample; the dummy × high-baseline interaction
+is positive but imprecise (0.19 and 0.14, p ≈ 0.3). The honest summary is a null with a weak,
+non-significant hint that kabupaten receiving any Chinese investment saw slightly more Konghucu
+registration. Power is the binding constraint: two years, 51 units and a stock outcome
 that moves little; the panel needs earlier yearbook years and the "any investment" and
 "high baseline" specifications above before the null is informative.
