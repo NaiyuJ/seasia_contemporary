@@ -46,7 +46,9 @@ every long difference.
    realised in 2022–2023), controlling for log(1 + cumulative Chinese investment up to 2021), the
    baseline level of y and log population; HC1 standard errors, and a version with province fixed
    effects and province-clustered errors. Also reported: Δlog(1+count) as outcome, same-source
-   pairs only, and the sample without Singkawang.
+   pairs only, the sample without Singkawang, a dummy for any investment in the window instead
+   of the log flow, and the log flow interacted with a dummy for a baseline y at or above the
+   sample median (the re-registration mechanism needs Chinese Indonesians to be there).
 2. Two-way fixed effects on the unbalanced 2019–2023 panel: y_it on log(1 + cumulative Chinese
    investment up to t) with unit and year effects (within transformation), errors clustered by unit.
 3. Placebos: the same long difference with Buddhist, Protestant and Catholic shares as outcomes.
@@ -87,3 +89,38 @@ investment, a placebo for "it is just FDI") as further columns of the results ta
   the regressor.
 - **Power.** 52 units give a two-period design little power for small effects; the upper-bound
   sample and the TWFE panel are there for precision, the exact sample for interpretation.
+
+## Results (run of 2026-10-19, panel of 2,075 unit-years; `data/konghucu/analysis/regressions.csv`)
+
+Coefficients are the change in registered Konghucu per 1,000 residents (2021→2023) per unit of
+Δlog(1 + thousand USD) realised in 2022–2023. BKPM names all matched a BPS code after the
+Papua / Selayar / Padang Sidempuan fixes (no "not matched" list printed).
+
+| spec | n | China | China+HK | all FDI |
+|---|---|---|---|---|
+| long-diff y_exact | 51 | 0.002 (0.013) | −0.004 (0.010) | 0.013 (0.029) |
+| … + province FE | 51 | 0.013 (0.024) | 0.028 (0.046) | −0.003 (0.036) |
+| … Δlog(count) | 51 | −0.007 (0.022) | 0.007 (0.014) | 0.010 (0.027) |
+| … without Singkawang | 50 | −0.005 (0.007) | −0.007 (0.006) | 0.015 (0.009) |
+| TWFE y_exact 2019–2023 | 351 | −0.005 (0.033) | 0.007 (0.045) | 0.107 (0.100) |
+| long-diff y_ub | 113 | 0.023 (0.013) | 0.015 (0.013) | 0.018 (0.012) |
+| … + province FE | 113 | 0.036 (0.025) | 0.034 (0.028) | 0.013 (0.015) |
+| … without Singkawang | 112 | 0.019 (0.012) | 0.014 (0.012) | 0.021 (0.011) |
+| TWFE y_ub 2019–2023 | 736 | 0.029 (0.048) | 0.034 (0.051) | −0.072 (0.112) |
+| placebo share_buddha | 136 | 0.020 (0.030) | −0.000 (0.042) | 0.007 (0.016) |
+| placebo share_kristen | 143 | 0.37 (0.42) | 0.80 (0.61) | 1.54 (1.45) |
+| placebo share_katolik | 143 | −0.39 (0.26) | −0.43 (0.22) | 0.08 (0.33) |
+
+Reading: in the exact sample there is no detectable effect of Chinese investment on Konghucu
+registration; the point estimates change sign across specifications and are within one standard
+error of zero. The exact-sample standard error without Singkawang (0.007) means the design can
+rule out, at the 5% level, effects larger than roughly 0.02 per 1,000 residents per log point of
+investment, i.e. a kabupaten going from zero to USD 10 million of Chinese investment (about 9 log
+points) adding more than 0.2 Konghucu per 1,000 residents; typical exact-sample levels are
+0.2–2 per 1,000, Singkawang 10 and rising by 3.9 over the window with no Chinese FDI recorded.
+The upper-bound sample gives a marginally positive coefficient (p = 0.09) that does not survive
+province fixed effects, the China+HK or all-FDI measures, or the TWFE panel, and is of the same
+order as the Catholic-share placebo (p = 0.05 with China+HK); it is read as noise from the
+"Lainnya" column. Power is the binding constraint: two years, 51 units and a stock outcome
+that moves little; the panel needs earlier yearbook years and the "any investment" and
+"high baseline" specifications above before the null is informative.

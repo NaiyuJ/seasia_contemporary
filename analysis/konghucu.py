@@ -103,7 +103,8 @@ def describe(p: pd.DataFrame) -> dict:
 
 def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc: str = "HC1"):
     import statsmodels.api as sm
-    X = X.loc[:, X.std(numeric_only=True) > 0]  # a constant regressor (no investment at baseline) is dropped
+    sd, mean = X.std(numeric_only=True), X.abs().mean(numeric_only=True)
+    X = X.loc[:, sd > 1e-9 * (mean + 1)]  # a constant regressor (no investment at baseline) is dropped
     Xc = sm.add_constant(X, has_constant="add")
     m = sm.OLS(y, Xc, missing="drop")
     if cluster is not None:
@@ -114,17 +115,28 @@ def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc:
 
 
 def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int = 2021, t1: int = 2023,
-                    province_fe: bool = False, outcome: str = "change_fixedpop"):
-    """change in y (a stock) on log(1 + investment flow realised in the window t0+1..t1),
-    controlling for log(1 + cumulative investment up to t0), the baseline level of y and log
-    population; HC1 or province-clustered SE. `d_inv` is the window flow."""
+                    province_fe: bool = False, outcome: str = "change_fixedpop", treatment: str = "log",
+                    interact_high: bool = False):
+    """change in y (a stock) on log(1 + investment flow realised in the window t0+1..t1)
+    (`treatment="any"`: a dummy for any flow in the window instead), controlling for
+    log(1 + cumulative investment up to t0), the baseline level of y and log population; HC1 or
+    province-clustered SE. `d_inv` is the window flow. `interact_high` adds a dummy for a
+    baseline y at or above the sample median and its product with d_inv (`d_inv_x_high`): the
+    identity mechanism can only operate where there are Chinese Indonesians to re-register."""
     flow = inv[inv["year"].between(t0 + 1, t1)].groupby("unit_code")[inv_col].sum()
     stock = inv[inv["year"] <= t0].groupby("unit_code")[inv_col].sum()
     iv = pd.DataFrame({"d_inv": np.log1p(flow), "inv_base": np.log1p(stock)}).fillna(0)
     d = tp.merge(iv[["d_inv", "inv_base"]], left_on="unit_code", right_index=True, how="left")
     d["d_inv"] = d["d_inv"].fillna(0)
     d["inv_base"] = d["inv_base"].fillna(0)
-    X = d[["d_inv", "inv_base", f"y{t0}", "log_pop"]].copy()
+    if treatment == "any":
+        d["d_inv"] = (d["d_inv"] > 0).astype(float)
+    cols = ["d_inv", "inv_base", f"y{t0}", "log_pop"]
+    if interact_high:
+        d["high"] = (d[f"y{t0}"] >= d[f"y{t0}"].median()).astype(float)
+        d["d_inv_x_high"] = d["d_inv"] * d["high"]
+        cols = ["d_inv", "high", "d_inv_x_high", "inv_base", f"y{t0}", "log_pop"]
+    X = d[cols].copy()
     if province_fe and "province_code" in d.columns:
         X = pd.concat([X, pd.get_dummies(d["province_code"], prefix="prov", drop_first=True, dtype=float)], axis=1)
     return ols(d[outcome].values, X, cluster=d["province_code"] if province_fe else None), d
@@ -147,6 +159,13 @@ def twfe(p: pd.DataFrame, y: str, inv: pd.DataFrame, inv_col: str, years=(2019, 
     X = pd.concat([d[["inv_w", "log_pop_w"]], pd.get_dummies(d["year"], prefix="yr", drop_first=True, dtype=float)], axis=1)
     res = ols(d[f"{y}_w"].values, X, cluster=d["unit_code"])
     return res, d
+
+
+def _row(spec: str, res, name: str = "d_inv") -> dict:
+    """one results-table row; NaN when the regressor was constant and dropped (e.g. every
+    unit treated, so the any-investment dummy has no variation)."""
+    return {"spec": spec, "n": int(res.nobs), "coef_d_inv": res.params.get(name, np.nan),
+            "se": res.bse.get(name, np.nan), "p": res.pvalues.get(name, np.nan)}
 
 
 def load_investment(path: str, inv_col: str) -> pd.DataFrame:
@@ -207,6 +226,10 @@ def main(argv=None):
         res, d = long_difference(tp[tp["same_source"]], inv, a.inv_col)
         rows.append({"spec": f"long-diff {y} same-source pairs only", "n": int(res.nobs),
                      "coef_d_inv": res.params["d_inv"], "se": res.bse["d_inv"], "p": res.pvalues["d_inv"]})
+        res, d = long_difference(tp, inv, a.inv_col, treatment="any")
+        rows.append(_row(f"long-diff {y} any-investment dummy", res))
+        res, d = long_difference(tp, inv, a.inv_col, interact_high=True)
+        rows.append(_row(f"long-diff {y} x high baseline (interaction)", res, "d_inv_x_high"))
         if "6172" in set(tp["unit_code"]):  # Singkawang drives most of the movement in the exact sample
             res, d = long_difference(tp[tp["unit_code"] != "6172"], inv, a.inv_col)
             rows.append({"spec": f"long-diff {y} without Singkawang", "n": int(res.nobs),

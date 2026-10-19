@@ -6,14 +6,15 @@ pytest.importorskip("statsmodels")
 from analysis import konghucu as an
 
 
-def _panel(seed=0, n=60, effect=0.5):
+def _panel(seed=0, n=60, effect=0.5, treated=lambda i: True):
     rng = np.random.default_rng(seed)
     rows, inv = [], []
     for i in range(n):
         code = f"{11 + i % 6}{i:02d}"  # six provinces
         pop = rng.integers(80_000, 900_000)
         base = rng.uniform(0, 3)
-        flow = {2019: 0.0, 2020: 0.0, 2021: 0.0, 2022: rng.uniform(0, 3000), 2023: rng.uniform(0, 5000)}
+        on = float(treated(i))
+        flow = {2019: 0.0, 2020: 0.0, 2021: 0.0, 2022: on * rng.uniform(0, 3000), 2023: on * rng.uniform(0, 5000)}
         cum = {y: sum(flow[k] for k in flow if k <= y) for y in flow}
         x = {y: np.log1p(cum[y]) for y in flow}  # the stock outcome responds to cumulative investment
         for y in range(2019, 2024):
@@ -40,6 +41,14 @@ def test_two_period_and_long_difference_recover_a_planted_effect(tmp_path):
     assert abs(res_fe.params["d_inv"] - 0.5) < 0.2
     res_tw, _ = an.twfe(p, "y_exact", inv, "value")
     assert abs(res_tw.params["inv_w"] - 0.5) < 0.15
+    panel0, inv0 = _panel(treated=lambda i: i % 2 == 0)  # half the units never receive investment
+    panel0.to_csv(tmp_path / "panel0.csv", index=False)
+    tp0 = an.two_period(an.load_panel(str(tmp_path / "panel0.csv")), "y_exact")
+    res_any, d_any = an.long_difference(tp0, inv0, "value", treatment="any")
+    assert set(d_any["d_inv"].unique()) == {0.0, 1.0} and res_any.params["d_inv"] > 0.5
+    res_int, d_int = an.long_difference(tp, inv, "value", interact_high=True)
+    assert {"high", "d_inv_x_high"} <= set(d_int.columns) and "d_inv_x_high" in res_int.params
+    assert abs(res_int.params["d_inv"] + res_int.params["d_inv_x_high"] - 0.5) < 0.3  # effect is homogeneous in the DGP
 
 
 def test_kemenag_type_cells_are_excluded_and_cli_runs(tmp_path, capsys):
