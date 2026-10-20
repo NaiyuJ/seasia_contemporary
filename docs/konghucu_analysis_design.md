@@ -31,6 +31,12 @@ kabupaten and count a different thing; mixing the two creates spurious jumps (se
 Main comparison: 2021 to 2023 (yearbooks published 2022 and 2024, BPS API tables). Units observed
 in both years with an exact count: 52; with exact or upper bound: 131 (as of October 2026).
 
+A unit-year pair enters the upper-bound sample only if both years have the same definition
+(both an exact Konghucu count, or both Lainnya): an exact count in one year and Lainnya in the
+other would read as a change in registration. `two_period` drops such pairs and the script
+prints how many. It also refuses a panel with two rows for the same unit-year, which
+`pivot_table` would otherwise average silently.
+
 The upper-bound sample excludes provinces whose *Lainnya* is an indigenous religion rather than
 Konghucu: Nusa Tenggara Timur (Marapu; Sumba Barat Daya shows 17 per 1,000), Kalimantan Tengah
 (Kaharingan) and the Papua provinces (`UB_EXCLUDE_PROVINCES`).
@@ -44,8 +50,13 @@ every long difference.
 
 1. Long difference: Δy(2021→2023), the outcome being a stock, on log(1 + Chinese investment
    realised in 2022–2023), controlling for log(1 + cumulative Chinese investment up to 2021), the
-   baseline level of y and log population; HC1 standard errors, and a version with province fixed
-   effects and province-clustered errors. Also reported: Δlog(1+count) as outcome, same-source
+   baseline level of y and log population; HC3 standard errors, and a version with province fixed
+   effects. Errors are clustered by province only when the sample has at least 20 provinces;
+   with fewer, HC3 is used. `python -m analysis.size_check` simulates the test DGP with no
+   effect: at n = 51 and six provinces, HC1 rejected a true null 8 to 9% of the time, HC3 8%,
+   classical 7% (the synthetic draws, not the pipeline, carry that excess: the same draws
+   regressed by hand give the same rate and pure Gaussian draws give 5%), and six-cluster
+   errors 20%. Also reported: Δlog(1+count) as outcome, same-source
    pairs only, the sample without Singkawang, a dummy for any investment in the window instead
    of the log flow, and the log flow interacted with a dummy for a baseline y at or above the
    sample median (the re-registration mechanism needs Chinese Indonesians to be there).

@@ -102,3 +102,41 @@ def test_bkpm_conversion(tmp_path):
     assert out.loc[("6172", 2022), "china_usd_k"] == 0 and out.loc[("6172", 2022), "fdi_usd_k"] == 9
     assert out.loc[("3171", 2022), "pmdn_usd_k"] == 300
     assert "Nowhere" not in str(out.index)
+
+
+def test_mixed_definition_pairs_are_dropped_from_the_upper_bound_sample(tmp_path):
+    panel, inv = _panel(n=12)
+    panel["konghucu_ub_is_lainnya"] = False
+    # unit 1100: exact in 2021, Lainnya (larger) in 2023 -> would read as a rise; must be dropped
+    m = (panel["unit_code"] == "1100") & (panel["year"] == 2023)
+    panel.loc[m, ["konghucu_ub_is_lainnya", "konghucu_ub"]] = [True, 10 * panel.loc[m, "konghucu_ub"].iloc[0]]
+    panel.loc[m, "konghucu"] = np.nan
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    p = an.load_panel(str(tmp_path / "panel.csv"))
+    tp = an.two_period(p, "y_ub")
+    assert "1100" not in set(tp["unit_code"]) and tp.attrs["dropped_mixed_definition"] == 1
+    assert "1100" not in set(an.two_period(p, "y_exact")["unit_code"])  # 2023 exact count is missing
+
+
+def test_duplicate_unit_year_rows_raise(tmp_path):
+    panel, inv = _panel(n=5)
+    panel = pd.concat([panel, panel[panel["year"] == 2021].iloc[[0]]])  # a second 2021 row for one unit
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    with pytest.raises(ValueError, match="duplicate"):
+        an.two_period(an.load_panel(str(tmp_path / "panel.csv")), "y_exact")
+
+
+def test_few_clusters_fall_back_to_hc3():
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"x": rng.normal(size=40)})
+    y = rng.normal(size=40)
+    res = an.ols(y, X, cluster=pd.Series(np.arange(40) % 6))
+    assert res.cov_type == "HC3"
+    res = an.ols(y, X, cluster=pd.Series(np.arange(40) % 20))
+    assert res.cov_type == "cluster"
+
+
+def test_size_check_runs():
+    from analysis import size_check
+    r = size_check.rejection_rates(reps=3, n=20, provinces=4)
+    assert set(r.index) >= {"HC1", "HC3", "cluster_4"} and (r <= 1).all()

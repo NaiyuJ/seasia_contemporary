@@ -59,8 +59,23 @@ def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.Da
     d = p[p["dukcapil_type"] & p["year"].isin([t0, t1]) & p[y].notna()]
     if y == "y_ub":
         d = d[~d["province_code"].isin(UB_EXCLUDE_PROVINCES)]
+    if "semester" in d.columns:  # half-year Dukcapil cells: keep the end-of-year one
+        d = d.sort_values(["unit_code", "year", "semester"]).drop_duplicates(["unit_code", "year"], keep="last")
+    dup = d.duplicated(["unit_code", "year"], keep=False)
+    if dup.any():  # harmonize gives one table per cell; a duplicate would be silently averaged below
+        raise ValueError(f"{int(dup.sum())} duplicate unit-year rows in the panel, e.g. "
+                         f"{d[dup][['unit_code', 'year']].head(3).values.tolist()}")
     w = d.pivot_table(index="unit_code", columns="year", values=y)
     w = w.dropna(subset=[t0, t1])
+    n_mixed = 0
+    if y == "y_ub" and "konghucu_ub_is_lainnya" in d.columns:
+        # an exact Konghucu count in one year and Lainnya (Konghucu + Kepercayaan + others) in the
+        # other would read as a change in registration; keep pairs with the same definition only
+        lain = d.pivot_table(index="unit_code", columns="year", values="konghucu_ub_is_lainnya",
+                             aggfunc="first").reindex(w.index)
+        mixed = lain[t0].astype(bool) != lain[t1].astype(bool)
+        n_mixed = int(mixed.sum())
+        w = w[~mixed]
     out = w.rename(columns={t0: f"y{t0}", t1: f"y{t1}"})
     out["change"] = out[f"y{t1}"] - out[f"y{t0}"]
     cnt = d.pivot_table(index="unit_code", columns="year", values=COUNT_OF[y]).reindex(out.index)
@@ -77,7 +92,9 @@ def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.Da
     src = d.assign(src=d["ref"].astype(str).str.split(":").str[0]).pivot_table(
         index="unit_code", columns="year", values="src", aggfunc="first").reindex(out.index)
     out["same_source"] = (src[t0] == src[t1]).fillna(False).astype(bool)
-    return out.reset_index()
+    out = out.reset_index()
+    out.attrs["dropped_mixed_definition"] = n_mixed
+    return out
 
 
 def describe(p: pd.DataFrame) -> dict:
@@ -101,7 +118,13 @@ def describe(p: pd.DataFrame) -> dict:
     return out
 
 
-def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc: str = "HC1"):
+MIN_CLUSTERS = 20  # below this, cluster-robust errors over-reject badly (analysis/size_check.py)
+
+
+def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc: str = "HC3"):
+    """OLS with HC3 errors (HC1 over-rejects at n = 50), or cluster-robust errors when there
+    are at least MIN_CLUSTERS clusters; with fewer clusters HC3 is used instead, since
+    6-cluster errors rejected a true null 20% of the time in the size check."""
     import statsmodels.api as sm
     sd, mean = X.std(numeric_only=True), X.abs().mean(numeric_only=True)
     X = X.loc[:, sd > 1e-9 * (mean + 1)]  # a constant regressor (no investment at baseline) is dropped
@@ -109,7 +132,7 @@ def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc:
     m = sm.OLS(y, Xc, missing="drop")
     if cluster is not None:
         groups = pd.factorize(cluster.loc[Xc.index].astype(str))[0]  # statsmodels wants integer group ids
-        if groups.max() >= 1:  # at least two clusters, else fall back to heteroskedasticity-robust SE
+        if groups.max() + 1 >= MIN_CLUSTERS:
             return m.fit(cov_type="cluster", cov_kwds={"groups": groups})
     return m.fit(cov_type=hc)
 
@@ -199,6 +222,8 @@ def main(argv=None):
         print(f"-- change 2021 -> 2023, units observed in both years:")
         print(desc[f"change_summary_{y}"].to_string())
         tp = desc[f"two_period_{y}"]
+        if tp.attrs.get("dropped_mixed_definition"):
+            print(f"-- {tp.attrs['dropped_mixed_definition']} units dropped: exact Konghucu in one year, Lainnya in the other")
         tp.to_csv(out / f"two_period_{y}.csv", index=False)
         cols = [c for c in ["unit_code", "unit_name", "y2021", "y2023", "change_fixedpop", "dlog_count", "same_source"] if c in tp.columns]
         print("-- largest increases (per 1,000, base-year population):")

@@ -111,6 +111,8 @@ python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col
                                                          # descriptives, 2021->2023 changes, long-difference / TWFE / placebos
 ```
 See `docs/konghucu_analysis_design.md` for the outcome, samples and identification caveats.
+`python -m analysis.size_check` reports the rejection rate of each standard-error choice under a
+no-effect simulation (the reason the long differences use HC3 and cluster only with 20+ clusters).
 
 Output `data/konghucu/religion_panel.csv`: one row per unit × year × semester
 (semester 0 = annual source), one column per religion, `konghucu_share`, and
