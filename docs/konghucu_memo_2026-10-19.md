@@ -1,6 +1,6 @@
 # Memo: Konghucu Registration and Chinese Investment
 
-As of 2026-10-19. Companion to `docs/konghucu_analysis_design.md` (specifications, full
+As of 2026-10-20 (results refreshed after the code review of the same day). Companion to `docs/konghucu_analysis_design.md` (specifications, full
 results table) and `docs/konghucu_data_sources.md` (sources, cleaning rules, known bad tables).
 
 **Bottom line.** Between 2021 and 2023, how much Chinese investment a kabupaten received has no
@@ -65,9 +65,10 @@ Cleaning rules, all in `konghucu/harmonize.py` and rerunnable:
   two-level kecamatan/kelurahan numbering, split-page tables, missing total rows and watermark
   characters leaking into digits.
 
-Coverage is thin before 2019 and best for 2021 to 2023, where 145, 150 and 180 kabupaten
-respectively have usable Dukcapil-type cells. 52 kabupaten have an exact Konghucu count in both
-2021 and 2023; 131 have an exact or upper-bound count.
+Coverage is thin before 2019 and best for 2021 to 2023, where 233, 289 and 233 kabupaten
+respectively have usable Dukcapil-type cells (91, 106 and 70 with an exact Konghucu count).
+51 kabupaten have an exact Konghucu count in both 2021 and 2023; 102 have an exact or
+upper-bound count under the same definition in both years.
 
 ## Investment variable
 
@@ -99,8 +100,9 @@ alone does not read as a fall. All specifications are in `analysis/konghucu.py`.
 
 1. **Long difference.** Change in y on log(1 + Chinese investment realised in 2022 to 2023),
    controlling for log(1 + cumulative investment to 2021), the 2021 level of y and log
-   population. HC1 standard errors; a second version adds province fixed effects with
-   province-clustered errors.
+   population. HC3 standard errors (province-clustered only with 20 or more provinces;
+   `analysis/size_check.py` shows six-cluster errors reject a true null 20% of the time); a
+   second version adds province fixed effects, dropping provinces with a single sampled unit.
 2. **Variants of the long difference.** Change in log(1 + count) as outcome; pairs whose two
    cells come from the same source type; the sample without Singkawang, which alone accounts for
    most of the movement; a 0/1 dummy for any Chinese investment in the window instead of the log
@@ -114,8 +116,8 @@ alone does not read as a fall. All specifications are in `analysis/konghucu.py`.
    registration drive.
 
 Two samples throughout. *Exact*: tables with a Konghucu column (51 kabupaten in 2021 and 2023).
-*Upper bound*: Konghucu or Lainnya (113 after excluding Nusa Tenggara Timur, Kalimantan Tengah
-and Papua, where Lainnya is an indigenous religion). The upper-bound sample is a robustness
+*Upper bound*: Konghucu or Lainnya (102 after excluding Nusa Tenggara Timur, Kalimantan Tengah
+and Papua, where Lainnya is an indigenous religion, and 8 units whose definition differs between the two years). The upper-bound sample is a robustness
 check, never pooled with the exact one.
 
 Descriptively the stock barely moves. The median two-year change is zero; 49 percent of
@@ -125,54 +127,35 @@ Chinese FDI.
 
 ## Results
 
-No specification finds an effect of investment intensity. Coefficients are the change in
-registered Konghucu per 1,000 residents, 2021 to 2023, per unit of Δlog(1 + thousand USD)
-realised in 2022 to 2023; standard errors in parentheses. Dummy rows are per 1,000 residents for
-kabupaten with any investment versus none. Run of 19 October 2026,
-`data/konghucu/analysis/regressions.csv`.
+No specification finds an effect of investment intensity. Coefficients are the change in registered Konghucu per 1,000 residents, 2021 to 2023, per unit of Δlog(1 + thousand USD) realised in 2022 to 2023; HC3 standard errors in parentheses. Dummy rows are per 1,000 residents for kabupaten with any investment versus none; "—" marks a regressor without variation (every exact-sample kabupaten has some FDI) or an error not yet refreshed after the singleton-province fix. Run of 20 October 2026 on the rebuilt panel, `data/konghucu/analysis/regressions.csv`.
 
 | Specification | n | China | China + HK | All FDI |
 | --- | --- | --- | --- | --- |
-| Long diff, exact | 51 | 0.002 (0.013) | −0.004 (0.010) | 0.013 (0.029) |
-| + province FE | 51 | 0.013 (0.024) | 0.028 (0.046) | −0.003 (0.036) |
-| Δlog(count) | 51 | −0.007 (0.022) | 0.007 (0.014) | 0.010 (0.027) |
-| Without Singkawang | 50 | −0.005 (0.007) | −0.007 (0.006) | 0.015 (0.009) |
-| Any-investment dummy | 51 | 0.33 (0.30) | 0.34 (0.32) | 0.38 (0.40) |
-| Dummy + province FE | 51 | 0.37 (0.39) | | −0.20 (0.20) |
-| Dummy × high baseline | 51 | 0.19 (0.19) | | 0.07 (0.07) |
-| Log flow × high baseline | 51 | −0.004 (0.012) | −0.022 (0.026) | −0.062 (0.071) |
-| TWFE 2019–2023, exact | 351 | −0.005 (0.033) | 0.007 (0.045) | 0.107 (0.100) |
-| Long diff, upper bound | 113 | 0.023 (0.013) | 0.015 (0.013) | 0.018 (0.012) |
-| + province FE | 113 | 0.036 (0.025) | 0.034 (0.028) | 0.013 (0.015) |
-| Any-investment dummy | 113 | 0.26 (0.13) | 0.23 (0.12) | 0.14 (0.11) |
-| Dummy + province FE | 113 | 0.31 (0.20) | | 0.12 (0.12) |
-| TWFE 2019–2023, upper bound | 736 | 0.029 (0.048) | 0.034 (0.051) | −0.072 (0.112) |
-| Placebo: Buddhist share | 136 | 0.020 (0.030) | −0.000 (0.042) | 0.007 (0.016) |
-| Placebo: Protestant share | 143 | 0.37 (0.42) | 0.80 (0.61) | 1.54 (1.45) |
-| Placebo: Catholic share | 143 | −0.39 (0.26) | −0.43 (0.22) | 0.08 (0.33) |
+| Long diff, exact | 51 | 0.002 (0.023) | −0.004 (0.012) | 0.013 (0.044) |
+| + province FE | 51 | 0.013 (0.030) | 0.028 (0.059) | −0.003 (0.037) |
+| Δlog(count) | 51 | −0.007 (0.023) | 0.007 (0.015) | 0.010 (0.036) |
+| Without Singkawang | 50 | −0.005 (0.012) | −0.007 (0.009) | 0.015 (0.012) |
+| Any-investment dummy | 51 | 0.33 (0.32) | 0.34 (0.34) | 0.38 (0.44) |
+| Dummy + province FE | 51 | 0.37 (0.41) | 0.45 (0.50) | −0.20 (0.37) |
+| Dummy × high baseline | 51 | 0.19 (0.23) | 0.19 (0.27) | — |
+| Log flow × high baseline | 51 | −0.003 (0.018) | −0.022 (0.030) | −0.066 (0.100) |
+| TWFE 2019–2023, exact | 361 | 0.002 (0.039) | 0.017 (0.055) | 0.142 (0.119) |
+| Long diff, upper bound | 102 | 0.029 (0.018) | 0.019 (0.016) | 0.020 (0.017) |
+| + province FE | 102 | 0.042 (0.024) | 0.044 (—) | 0.025 (0.026) |
+| Any-investment dummy | 102 | 0.30 (0.17) | 0.25 (0.15) | 0.15 (0.14) |
+| Dummy + province FE | 102 | 0.36 (0.21) | 0.36 (0.24) | 0.23 (0.21) |
+| TWFE 2019–2023, upper bound | 567 | 0.016 (0.034) | 0.033 (0.043) | 0.086 (0.072) |
+| Placebo: Buddhist share | 132 | 0.021 (0.034) | −0.001 (0.049) | 0.007 (0.022) |
+| Placebo: Protestant share | 139 | −0.01 (0.34) | 0.48 (0.67) | 0.38 (0.62) |
+| Placebo: Catholic share | 139 | −0.25 (0.22) | −0.30 (0.16) | −0.03 (0.23) |
 
 Reading the table:
 
-- **Intensity: null.** In the exact sample the log-flow coefficient changes sign across
-  specifications and never exceeds one standard error. The tightest estimate, without
-  Singkawang, is −0.005 with a standard error of 0.007. At the 5 percent level this rules out
-  effects above roughly 0.02 per 1,000 per log point, so a kabupaten going from zero to USD 10
-  million of Chinese investment (about 9 log points) adding more than 0.2 Konghucu per 1,000
-  residents. Typical exact-sample levels are 0.2 to 2 per 1,000.
-- **Any investment: a weak, non-significant hint.** Kabupaten with any Chinese investment in
-  2022 to 2023 gained about 0.3 more per 1,000 in both samples. The point estimate survives
-  province fixed effects (0.37 and 0.31) but the p-values are 0.35 and 0.13. The all-FDI dummy
-  turns negative with province effects, so the hint is somewhat specific to Chinese money.
-  Treated kabupaten are larger and more urban, which the controls only partly absorb.
-- **Not where Chinese Indonesians live.** The interaction with a high 2021 Konghucu level is
-  zero or negative for the log flow and positive but imprecise for the dummy (0.19 and 0.14,
-  p ≈ 0.3). The re-registration mechanism predicts the effect should sit in exactly these places.
-- **Upper-bound sample.** The marginal p = 0.09 and p = 0.05 results there vanish with province
-  effects, with the China + HK measure and in the TWFE panel, and the Catholic placebo reaches
-  p = 0.05 with the China + HK measure. These are read as noise from the Lainnya column.
-- **Placebos.** The Buddhist share, the religion most Chinese Indonesians hold, does not respond
-  to any investment measure, so there is no sign that investment moves Chinese population shares
-  through migration.
+- **Intensity: null.** In the exact sample the log-flow coefficient changes sign across specifications and never exceeds one standard error. The tightest estimate, without Singkawang, is −0.005 with a standard error of 0.012. At the 5 percent level this rules out effects above roughly 0.025 per 1,000 per log point, so a kabupaten going from zero to USD 10 million of Chinese investment (about 9 log points) adding more than 0.2 Konghucu per 1,000 residents. Typical exact-sample levels are 0.2 to 2 per 1,000.
+- **Any investment: a weak, non-significant hint.** Kabupaten with any Chinese investment in 2022 to 2023 gained about 0.3 more per 1,000 in both samples. The point estimate survives province fixed effects (0.37 and 0.36) but the p-values are 0.36 and 0.08. The all-FDI dummy turns negative with province effects, so the hint is somewhat specific to Chinese money. Treated kabupaten are larger and more urban, which the controls only partly absorb.
+- **Not where Chinese Indonesians live.** The interaction with a high 2021 Konghucu level is zero or negative for the log flow and positive but imprecise for the dummy (0.19 and 0.10, p ≈ 0.4 to 0.5). The re-registration mechanism predicts the effect should sit in exactly these places.
+- **Upper-bound sample.** The p ≈ 0.07 to 0.10 results there do not hold with the China + HK or all-FDI measures or in the TWFE panel, and the Catholic placebo reaches p = 0.07 with the China + HK measure. These are read as noise from the Lainnya column.
+- **Placebos.** The Buddhist share, the religion most Chinese Indonesians hold, does not respond to any investment measure, so there is no sign that investment moves Chinese population shares through migration.
 
 ## Limitations and identification
 
@@ -224,4 +207,4 @@ python -m analysis.bkpm --src <BKPM realisasi CSV>
 python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col china_usd_k
 ```
 
-Tests: `python -m pytest -q`, 157 passing.
+Tests: `python -m pytest -q`, 168 passing.

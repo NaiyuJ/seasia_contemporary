@@ -89,7 +89,84 @@ Units without a row are zero investment. log(1+x) because the distribution is ex
 with many zeros; run `--inv-col china_plus_hk_usd_k` and `--inv-col fdi_usd_k` (all foreign
 investment, a placebo for "it is just FDI") as further columns of the results table.
 
-## Review fixes of 2026-10-20 (results above predate them; rerun before quoting)
+## Review fixes of 2026-10-20 (the results above are from the rerun after them)
+
+An independent code review found, and these commits fixed: the TWFE year dummies were not
+demeaned (above); the TWFE upper-bound sample lacked the province exclusion and the
+same-definition rule; a printed dash in a BPS table was read as missing rather than zero, so
+kabupaten with no Konghucu left the exact sample (selection on the outcome); the
+`placeholder` quality rule counted four zeros as a placeholder pattern and dropped the same
+kind of cell; percentage-table cells passed the Dukcapil filter mechanically; an interaction
+collinear with its main effect would have been reported (now dropped); province-clustered
+errors with few provinces over-rejected (HC3 with a 20-cluster guard); BKPM statuses with
+stray whitespace, a bare ambiguous kabupaten name, and an empty PMDN USD column were silent.
+Still open, by design: when two sources cover a cell, the source preference can pick a table
+without a Konghucu column over one with it, so exact-sample coverage depends on which sources
+were fetched.
+
+## Identification caveats
+
+- **Selection into coverage.** Which kabupaten publish a usable religion table (and with a
+  Konghucu column) is not random: the exact sample over-represents Kalimantan Barat, Bangka
+  Belitung and Jawa Tengah. Report the sample's provinces and compare its investment distribution
+  with the full set of kabupaten.
+- **Registration vs belief.** The count is administrative. A rise can come from new converts,
+  from existing Confucians correcting a KTP that said Buddhist (the common pre-2006 workaround), or
+  from Dukcapil data cleaning. The yearbook-vs-API comparison for the same kabupaten-year bounds
+  the last.
+- **Timing.** Yearbook data are end-of-year stocks; BKPM investment realisations are flows by
+  quarter. Lag the investment variable (t-1) as a check.
+- **Pemekaran.** Kabupaten split during the window change both numerator and denominator; the
+  population anchor flags them (`total_to_pop` far from 1 in the split year) and they should be
+  dropped or merged to the parent unit.
+- **Measurement error from parsing.** Yearbook figures pass through a watermark-stripping parser;
+  every book's total was checked against the official population (within 1 to 2 percent in the
+  books inspected by hand). Residual error is classical in the outcome and attenuates nothing in
+  the regressor.
+- **Power.** 52 units give a two-period design little power for small effects; the upper-bound
+  sample and the TWFE panel are there for precision, the exact sample for interpretation.
+
+## Results (run of 2026-10-20 on the rebuilt panel; `data/konghucu/analysis/regressions.csv`)
+
+No specification finds an effect of investment intensity. Coefficients are the change in registered Konghucu per 1,000 residents, 2021 to 2023, per unit of Δlog(1 + thousand USD) realised in 2022 to 2023; HC3 standard errors in parentheses. Dummy rows are per 1,000 residents for kabupaten with any investment versus none; "—" marks a regressor without variation (every exact-sample kabupaten has some FDI) or an error not yet refreshed after the singleton-province fix. Run of 20 October 2026 on the rebuilt panel, `data/konghucu/analysis/regressions.csv`.
+
+Dukcapil-type coverage by year: 101 / 173 / 233 / 289 / 233 kabupaten in 2019–2023, of which
+43 / 108 / 91 / 106 / 70 with an exact Konghucu count. 51 exact pairs for 2021–2023; 102
+upper-bound pairs after 8 units with an exact count in one year and Lainnya in the other were
+dropped. BKPM names all matched a BPS code.
+
+| Specification | n | China | China + HK | All FDI |
+| --- | --- | --- | --- | --- |
+| Long diff, exact | 51 | 0.002 (0.023) | −0.004 (0.012) | 0.013 (0.044) |
+| + province FE | 51 | 0.013 (0.030) | 0.028 (0.059) | −0.003 (0.037) |
+| Δlog(count) | 51 | −0.007 (0.023) | 0.007 (0.015) | 0.010 (0.036) |
+| Without Singkawang | 50 | −0.005 (0.012) | −0.007 (0.009) | 0.015 (0.012) |
+| Any-investment dummy | 51 | 0.33 (0.32) | 0.34 (0.34) | 0.38 (0.44) |
+| Dummy + province FE | 51 | 0.37 (0.41) | 0.45 (0.50) | −0.20 (0.37) |
+| Dummy × high baseline | 51 | 0.19 (0.23) | 0.19 (0.27) | — |
+| Log flow × high baseline | 51 | −0.003 (0.018) | −0.022 (0.030) | −0.066 (0.100) |
+| TWFE 2019–2023, exact | 361 | 0.002 (0.039) | 0.017 (0.055) | 0.142 (0.119) |
+| Long diff, upper bound | 102 | 0.029 (0.018) | 0.019 (0.016) | 0.020 (0.017) |
+| + province FE | 102 | 0.042 (0.024) | 0.044 (—) | 0.025 (0.026) |
+| Any-investment dummy | 102 | 0.30 (0.17) | 0.25 (0.15) | 0.15 (0.14) |
+| Dummy + province FE | 102 | 0.36 (0.21) | 0.36 (0.24) | 0.23 (0.21) |
+| TWFE 2019–2023, upper bound | 567 | 0.016 (0.034) | 0.033 (0.043) | 0.086 (0.072) |
+| Placebo: Buddhist share | 132 | 0.021 (0.034) | −0.001 (0.049) | 0.007 (0.022) |
+| Placebo: Protestant share | 139 | −0.01 (0.34) | 0.48 (0.67) | 0.38 (0.62) |
+| Placebo: Catholic share | 139 | −0.25 (0.22) | −0.30 (0.16) | −0.03 (0.23) |
+
+Reading:
+
+- **Intensity: null.** In the exact sample the log-flow coefficient changes sign across specifications and never exceeds one standard error. The tightest estimate, without Singkawang, is −0.005 with a standard error of 0.012. At the 5 percent level this rules out effects above roughly 0.025 per 1,000 per log point, so a kabupaten going from zero to USD 10 million of Chinese investment (about 9 log points) adding more than 0.2 Konghucu per 1,000 residents. Typical exact-sample levels are 0.2 to 2 per 1,000.
+- **Any investment: a weak, non-significant hint.** Kabupaten with any Chinese investment in 2022 to 2023 gained about 0.3 more per 1,000 in both samples. The point estimate survives province fixed effects (0.37 and 0.36) but the p-values are 0.36 and 0.08. The all-FDI dummy turns negative with province effects, so the hint is somewhat specific to Chinese money. Treated kabupaten are larger and more urban, which the controls only partly absorb.
+- **Not where Chinese Indonesians live.** The interaction with a high 2021 Konghucu level is zero or negative for the log flow and positive but imprecise for the dummy (0.19 and 0.10, p ≈ 0.4 to 0.5). The re-registration mechanism predicts the effect should sit in exactly these places.
+- **Upper-bound sample.** The p ≈ 0.07 to 0.10 results there do not hold with the China + HK or all-FDI measures or in the TWFE panel, and the Catholic placebo reaches p = 0.07 with the China + HK measure. These are read as noise from the Lainnya column.
+- **Placebos.** The Buddhist share, the religion most Chinese Indonesians hold, does not respond to any investment measure, so there is no sign that investment moves Chinese population shares through migration.
+
+Power is the binding constraint: two years, 51 units and a stock outcome that moves little;
+the panel needs earlier yearbook years before the null is informative against small effects.
+
+## Review fixes of 2026-10-20 (the results above are from the rerun after them)
 
 An independent code review found, and these commits fixed: the TWFE year dummies were not
 demeaned (above); the TWFE upper-bound sample lacked the province exclusion and the

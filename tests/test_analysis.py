@@ -226,3 +226,17 @@ def test_bkpm_status_whitespace_and_bare_ambiguous_names(tmp_path):
     assert by.loc["3273", "china_usd_k"] == 77 and by.loc["3273", "fdi_usd_k"] == 82  # Taiwan is FDI, not China
     assert by.loc["3204", "china_usd_k"] == 9  # a bare 'Bandung' is the kabupaten in BPS naming, never the kota
     assert by.loc["6302", "china_usd_k"] == 3
+
+
+def test_singleton_provinces_leave_the_province_fe_spec_and_errors_stay_finite(tmp_path):
+    panel, inv = _panel(n=30)
+    panel["unit_code"] = panel["unit_code"].where(panel["unit_code"] != "1100", "9900")  # one unit in province 99
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    tp = an.two_period(an.load_panel(str(tmp_path / "panel.csv")), "y_exact")
+    res, d = an.long_difference(tp, inv, "value", province_fe=True)
+    assert "9900" not in set(d["unit_code"]) and int(res.nobs) == 29
+    assert np.isfinite(res.bse).all()
+    # HC3 blows up on a leverage-one observation: the helper falls back to HC1
+    rng = np.random.default_rng(3)
+    X = pd.DataFrame({"x": rng.normal(size=30), "dummy": [1.0] + [0.0] * 29})
+    assert np.isfinite(an.ols(rng.normal(size=30), X).bse).all()

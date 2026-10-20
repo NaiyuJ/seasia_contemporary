@@ -154,7 +154,10 @@ def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc:
         groups = pd.factorize(cluster.loc[Xc.index].astype(str))[0]  # statsmodels wants integer group ids
         if groups.max() + 1 >= MIN_CLUSTERS:
             return m.fit(cov_type="cluster", cov_kwds={"groups": groups})
-    return m.fit(cov_type=hc)
+    res = m.fit(cov_type=hc)
+    if not np.isfinite(res.bse).all():  # HC3 with a leverage-one observation: fall back to HC1
+        res = m.fit(cov_type="HC1")
+    return res
 
 
 def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int = 2021, t1: int = 2023,
@@ -180,6 +183,10 @@ def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int =
         d["high"] = (d[f"y{t0}"] > (med if med > 0 else 0)).astype(float)  # above the median, or non-zero
         d["d_inv_x_high"] = d["d_inv"] * d["high"]
         cols = ["d_inv", "high", "d_inv_x_high", "inv_base", f"y{t0}", "log_pop"]
+    if province_fe and "province_code" in d.columns:
+        # a province with one unit in the sample is fit exactly by its dummy: it adds nothing to
+        # the within-province comparison and gives HC3 an infinite variance (leverage 1)
+        d = d[d.groupby("province_code")["unit_code"].transform("size") > 1]
     X = d[cols].copy()
     if province_fe and "province_code" in d.columns:
         X = pd.concat([X, pd.get_dummies(d["province_code"], prefix="prov", drop_first=True, dtype=float)], axis=1)
