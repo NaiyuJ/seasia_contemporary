@@ -27,7 +27,10 @@ import pandas as pd
 RELIGION_SHARES = ["konghucu", "buddha", "kristen", "katolik"]
 
 
-def load_panel(path: str, codes: Optional[str] = None) -> pd.DataFrame:
+MIN_CHINESE_SAMPLE = 30  # unweighted ethnic-Chinese respondents in the 10% sample behind a usable share
+
+
+def load_panel(path: str, codes: Optional[str] = None, chinese: Optional[str] = None) -> pd.DataFrame:
     p = pd.read_csv(path, dtype={"unit_code": str})
     p = p[p["population"].notna() & (p["population"] > 0)].copy()
     if "semester" in p.columns:  # one row per unit-year: the end-of-year half-year cell wins
@@ -49,6 +52,18 @@ def load_panel(path: str, codes: Optional[str] = None) -> pd.DataFrame:
             p[f"share_{r}"] = p[r] / p["population"] * 1000
     p["log_pop"] = np.log(p["population"])
     p["province_code"] = p["unit_code"].str[:2]
+    if chinese and Path(chinese).exists():
+        # IPUMS 2010: ethnic-Chinese share of the kabupaten, applied to the current population.
+        # y_exact_chn = registered Konghucu per 1,000 ethnic Chinese; only where the 2010 sample
+        # holds enough Chinese respondents for the share to mean something
+        c = pd.read_csv(chinese, dtype={"unit_code": str})
+        c["unit_code"] = c["unit_code"].str.zfill(4)
+        ok = (c["n_chinese_sample"] >= MIN_CHINESE_SAMPLE) & (c["chinese_share"] > 0)
+        c = c.loc[ok, ["unit_code", "chinese_share", "konghucu_of_chinese", "buddha_of_chinese"]]
+        p = p.merge(c, on="unit_code", how="left")
+        p["chinese_pop"] = p["chinese_share"] * p["population"]
+        p["y_exact_chn"] = p["konghucu"] / p["chinese_pop"] * 1000
+        p["log_chinese_share"] = np.log(p["chinese_share"])
     if codes and Path(codes).exists():
         c = pd.read_csv(codes, dtype=str)
         p = p.merge(c[["unit_code", "unit_name"]].drop_duplicates("unit_code"), on="unit_code", how="left")
@@ -58,8 +73,9 @@ def load_panel(path: str, codes: Optional[str] = None) -> pd.DataFrame:
 # provinces whose 'Lainnya' is an indigenous religion (Marapu in NTT, Kaharingan in Kalimantan
 # Tengah, local religions in Papua), so the upper bound says nothing about Konghucu there
 UB_EXCLUDE_PROVINCES = ("53", "62", "91", "92", "93", "94", "95", "96")
-COUNT_OF = {"y_exact": "konghucu", "y_ub": "konghucu_ub", "share_buddha": "buddha", "share_kristen": "kristen",
-            "share_katolik": "katolik"}
+COUNT_OF = {"y_exact": "konghucu", "y_ub": "konghucu_ub", "y_exact_chn": "konghucu", "share_buddha": "buddha",
+            "share_kristen": "kristen", "share_katolik": "katolik"}
+POP_OF = {"y_exact_chn": "chinese_pop"}  # denominator column; population otherwise
 
 
 def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.DataFrame:
@@ -84,11 +100,11 @@ def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.Da
     out = w.rename(columns={t0: f"y{t0}", t1: f"y{t1}"})
     out["change"] = out[f"y{t1}"] - out[f"y{t0}"]
     cnt = d.pivot_table(index="unit_code", columns="year", values=COUNT_OF[y]).reindex(out.index)
-    pop0 = d[d["year"] == t0].set_index("unit_code")["population"].reindex(out.index)
+    pop0 = d[d["year"] == t0].set_index("unit_code")[POP_OF.get(y, "population")].reindex(out.index)
     out["change_fixedpop"] = (cnt[t1] - cnt[t0]) / pop0 * 1000
     out["dlog_count"] = np.log1p(cnt[t1]) - np.log1p(cnt[t0])
     base = d.drop_duplicates("unit_code").set_index("unit_code")
-    for c in ["unit_name", "province_code"]:
+    for c in ["unit_name", "province_code", "chinese_share", "log_chinese_share", "konghucu_of_chinese"]:
         if c in base.columns:
             out[c] = base[c]
     out["log_pop"] = d[d["year"] == t0].set_index("unit_code")["log_pop"]
@@ -162,7 +178,7 @@ def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc:
 
 def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int = 2021, t1: int = 2023,
                     province_fe: bool = False, outcome: str = "change_fixedpop", treatment: str = "log",
-                    interact_high: bool = False):
+                    interact_high: bool = False, high_col: Optional[str] = None):
     """change in y (a stock) on log(1 + investment flow realised in the window t0+1..t1)
     (`treatment="any"`: a dummy for any flow in the window instead), controlling for
     log(1 + cumulative investment up to t0), the baseline level of y and log population; HC1 or
@@ -179,8 +195,9 @@ def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int =
         d["d_inv"] = (d["d_inv"] > 0).astype(float)
     cols = ["d_inv", "inv_base", f"y{t0}", "log_pop"]
     if interact_high:
-        med = d[f"y{t0}"].median()
-        d["high"] = (d[f"y{t0}"] > (med if med > 0 else 0)).astype(float)  # above the median, or non-zero
+        hc = high_col or f"y{t0}"  # the baseline Konghucu level, or e.g. the 2010 ethnic-Chinese share
+        med = d[hc].median()
+        d["high"] = (d[hc] > (med if med > 0 else 0)).astype(float)  # above the median, or non-zero
         d["d_inv_x_high"] = d["d_inv"] * d["high"]
         cols = ["d_inv", "high", "d_inv_x_high", "inv_base", f"y{t0}", "log_pop"]
     if province_fe and "province_code" in d.columns:
@@ -243,12 +260,13 @@ def main(argv=None):
     ap.add_argument("--codes", default="data/raw/bps_kabupaten_codes.csv")
     ap.add_argument("--investment", default=None, help="CSV with unit_code, year and the investment column")
     ap.add_argument("--inv-col", default="value")
+    ap.add_argument("--chinese", default=None, help="IPUMS 2010 ethnic-Chinese CSV from `konghucu.cli ipums-chinese`")
     ap.add_argument("--out", default="data/konghucu/analysis")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     pd.set_option("display.width", 200)
-    p = load_panel(a.panel, a.codes)
+    p = load_panel(a.panel, a.codes, a.chinese)
     print(f"panel rows with population: {len(p)}; Dukcapil-type (total within 0.8-1.25 of population): "
           f"{int(p['dukcapil_type'].sum())}")
     desc = describe(p)
@@ -268,6 +286,20 @@ def main(argv=None):
         print(tp.nlargest(8, "change_fixedpop")[cols].round(3).to_string(index=False))
         print("-- largest decreases:")
         print(tp.nsmallest(5, "change_fixedpop")[cols].round(3).to_string(index=False))
+    if "chinese_share" in p.columns:
+        print("\n== IPUMS 2010 ethnic-Chinese share (%): exact 2021-2023 sample vs all kabupaten with a usable share")
+        ex = desc["two_period_y_exact"]
+        allc = p.drop_duplicates("unit_code")["chinese_share"].dropna() * 100
+        print(pd.DataFrame({"exact sample": (ex["chinese_share"] * 100).describe(percentiles=[.25, .5, .75, .9]),
+                            "all kabupaten": allc.describe(percentiles=[.25, .5, .75, .9])}).round(2).to_string())
+        print(f"-- exact-sample units with a usable share: {int(ex['chinese_share'].notna().sum())} of {len(ex)}")
+        tpc = two_period(p, "y_exact_chn")
+        tpc.to_csv(out / "two_period_y_exact_chn.csv", index=False)
+        print(f"\n== Konghucu per 1,000 ETHNIC CHINESE (2010 share x population): {len(tpc)} units in both years")
+        print(pd.DataFrame({"2021": tpc["y2021"].describe(percentiles=[.25, .5, .75, .9]),
+                            "2023": tpc["y2023"].describe(percentiles=[.25, .5, .75, .9])}).round(1).to_string())
+        print("-- 2010 census baseline, Konghucu among ethnic Chinese (%), same units:")
+        print((tpc["konghucu_of_chinese"] * 100).describe(percentiles=[.25, .5, .75, .9]).round(1).to_string())
     if not a.investment:
         print("\nno --investment file: regressions skipped. Expected: CSV with unit_code (BPS 4-digit), year, "
               f"and a value column (--inv-col, default 'value'); one row per kabupaten-year (or several, summed).")
@@ -304,6 +336,27 @@ def main(argv=None):
         res, d = twfe(p, y, inv, a.inv_col)
         rows.append({"spec": f"TWFE {y} 2019-2023", "n": int(res.nobs), "coef_d_inv": res.params["inv_w"],
                      "se": res.bse["inv_w"], "p": res.pvalues["inv_w"]})
+    if "y_exact_chn" in p.columns:
+        y = "y_exact_chn"
+        tp = two_period(p, y)
+        for fe in (False, True):
+            res, d = long_difference(tp, inv, a.inv_col, province_fe=fe)
+            rows.append(_row(f"long-diff {y} (per 1,000 ethnic Chinese){' +prov FE' if fe else ''}", res))
+        res, d = long_difference(tp, inv, a.inv_col, treatment="any")
+        rows.append(_row(f"long-diff {y} any-investment dummy", res))
+        if "6172" in set(tp["unit_code"]):
+            res, d = long_difference(tp[tp["unit_code"] != "6172"], inv, a.inv_col)
+            rows.append(_row(f"long-diff {y} without Singkawang", res))
+        res, d = twfe(p, y, inv, a.inv_col)
+        rows.append(_row(f"TWFE {y} 2019-2023", res, "inv_w"))
+        # heterogeneity on the per-resident outcome: investment x high 2010 ethnic-Chinese share
+        tpe = desc["two_period_y_exact"]
+        tpe = tpe[tpe["chinese_share"].notna()] if "chinese_share" in tpe.columns else tpe.iloc[0:0]
+        if len(tpe):
+            res, d = long_difference(tpe, inv, a.inv_col, interact_high=True, high_col="chinese_share")
+            rows.append(_row("long-diff y_exact x high 2010 Chinese share (interaction)", res, "d_inv_x_high"))
+            res, d = long_difference(tpe, inv, a.inv_col, treatment="any", interact_high=True, high_col="chinese_share")
+            rows.append(_row("long-diff y_exact any-investment dummy x high 2010 Chinese share", res, "d_inv_x_high"))
     for r in ["share_buddha", "share_kristen", "share_katolik"]:  # placebo outcomes
         if r in p.columns:
             tp = two_period(p, r)

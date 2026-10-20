@@ -432,6 +432,19 @@ def cmd_bps_population(a):
         print(dis.head(30).to_string(index=False))
 
 
+def cmd_ipums_chinese(a):
+    """IPUMS 2010 census extract -> ethnic Chinese and religion among them per kabupaten."""
+    from . import ipums
+    out = ipums.build(a.csv, a.ddi, a.codes)
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(a.out, index=False)
+    print(f"-> {a.out}")
+    print("largest ethnic-Chinese shares:")
+    print(out.nlargest(12, "chinese_share")[["unit_code", "geo2_label", "pop2010", "chinese2010", "chinese_share",
+                                               "konghucu_of_chinese", "buddha_of_chinese", "n_chinese_sample"]]
+          .round(3).to_string(index=False))
+
+
 def cmd_da_domains(a):
     """Domains (BPS 4-digit codes) worth fetching yearbooks for: units with a usable Konghucu
     count (exact, or exact-or-Lainnya with --ub) in some base year but none in a target year.
@@ -574,6 +587,12 @@ def build_parser():
     pb.add_argument("--out", default="data/konghucu/bps_publications.csv")
     pb.set_defaults(func=cmd_bps_publications)
 
+    ip = sp.add_parser("ipums-chinese", help="IPUMS 2010 census: ethnic Chinese and their religion per kabupaten")
+    ip.add_argument("--csv", required=True, help="IPUMS extract (.csv or .csv.gz)")
+    ip.add_argument("--ddi", required=True, help="its DDI codebook (.xml)")
+    ip.add_argument("--codes", default="data/raw/bps_kabupaten_codes.csv")
+    ip.add_argument("--out", default="data/raw/ipums_chinese_2010.csv")
+    ip.set_defaults(func=cmd_ipums_chinese)
     dd = sp.add_parser("da-domains", help="domains whose yearbooks would extend the Konghucu panel to earlier years")
     dd.add_argument("--panel", default="data/konghucu/religion_panel.csv")
     dd.add_argument("--years", nargs="+", required=True, help="target DATA years, e.g. 2017 2018 2019 2020")

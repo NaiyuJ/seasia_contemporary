@@ -110,6 +110,10 @@ python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
 # (cells to check against the raw table and, if wrong, list in konghucu/drop_cells.csv)
 python -m analysis.bkpm --src /path/to/bkpm_realisasi_2010_2026Q2_all.csv   # -> data/raw/china_investment.csv
 python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col china_usd_k
+python -m konghucu.cli ipums-chinese --csv data/raw/ipums/ipumsi_00001.csv.gz --ddi data/raw/ipums/ipumsi_00001.xml
+                                                         # IPUMS 2010 census: ethnic-Chinese share per kabupaten -> data/raw/ipums_chinese_2010.csv
+python -m analysis.konghucu --investment data/raw/china_investment.csv --inv-col china_usd_k --chinese data/raw/ipums_chinese_2010.csv
+                                                         # adds Konghucu per 1,000 ethnic Chinese and the Chinese-share interaction (docs/ipums_chinese_design.md)
                                                          # descriptives, 2021->2023 changes, long-difference / TWFE / placebos
 ```
 See `docs/konghucu_analysis_design.md` for the outcome, samples and identification caveats.

@@ -77,6 +77,15 @@ every long difference.
    Indonesians hold) is the pattern the identity argument predicts; a move in all of them points
    to migration or registration drives.
 
+## Ethnic-Chinese denominator (optional, `--chinese`)
+
+With `data/raw/ipums_chinese_2010.csv` (see `docs/ipums_chinese_design.md`) the script adds
+`y_exact_chn`, registered Konghucu per 1,000 ethnic Chinese (2010 share times current
+population), runs the main long difference, province FE, any-investment dummy, no-Singkawang
+and TWFE on it, and interacts investment with a high 2010 Chinese share on the per-resident
+outcome. It also prints the 2010 baseline rate of Konghucu among the Chinese and compares the
+Chinese share of the exact sample with all kabupaten.
+
 ## Investment variable
 
 `python -m analysis.bkpm --src <BKPM realisasi CSV>` builds `data/raw/china_investment.csv` from

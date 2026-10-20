@@ -240,3 +240,26 @@ def test_singleton_provinces_leave_the_province_fe_spec_and_errors_stay_finite(t
     rng = np.random.default_rng(3)
     X = pd.DataFrame({"x": rng.normal(size=30), "dummy": [1.0] + [0.0] * 29})
     assert np.isfinite(an.ols(rng.normal(size=30), X).bse).all()
+
+
+def test_chinese_denominator_outcome_and_specs(tmp_path, capsys):
+    panel, inv = _panel(n=24)
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    units = sorted(set(panel["unit_code"]))
+    chn = pd.DataFrame({"unit_code": units, "chinese_share": np.linspace(0.01, 0.3, len(units)),
+                        "n_chinese_sample": [5] + [100] * (len(units) - 1),  # first unit: too few respondents
+                        "konghucu_of_chinese": 0.1, "buddha_of_chinese": 0.6})
+    chn.to_csv(tmp_path / "chn.csv", index=False)
+    inv.to_csv(tmp_path / "inv.csv", index=False)
+    p = an.load_panel(str(tmp_path / "panel.csv"), chinese=str(tmp_path / "chn.csv"))
+    assert p.loc[p["unit_code"] == units[0], "y_exact_chn"].isna().all()
+    row = p[(p["unit_code"] == units[1]) & (p["year"] == 2021)].iloc[0]
+    assert abs(row["y_exact_chn"] - row["y_exact"] / row["chinese_share"]) < 1e-6
+    tp = an.two_period(p, "y_exact_chn")
+    assert len(tp) == len(units) - 1 and "chinese_share" in tp.columns
+    assert np.allclose(tp["change_fixedpop"], tp["change"])  # constant population: same number either way
+    an.main(["--panel", str(tmp_path / "panel.csv"), "--codes", str(tmp_path / "none.csv"), "--out", str(tmp_path / "out"),
+             "--investment", str(tmp_path / "inv.csv"), "--chinese", str(tmp_path / "chn.csv")])
+    out = capsys.readouterr().out
+    assert "ETHNIC CHINESE" in out and "x high 2010 Chinese share" in out and "TWFE y_exact_chn" in out
+    assert (tmp_path / "out" / "two_period_y_exact_chn.csv").exists()
