@@ -30,7 +30,18 @@ RELIGION_SHARES = ["konghucu", "buddha", "kristen", "katolik"]
 def load_panel(path: str, codes: Optional[str] = None) -> pd.DataFrame:
     p = pd.read_csv(path, dtype={"unit_code": str})
     p = p[p["population"].notna() & (p["population"] > 0)].copy()
+    if "semester" in p.columns:  # one row per unit-year: the end-of-year half-year cell wins
+        p = p.sort_values(["unit_code", "year", "semester"]).drop_duplicates(["unit_code", "year"], keep="last")
+    dup = p.duplicated(["unit_code", "year"], keep=False)
+    if dup.any():
+        raise ValueError(f"{int(dup.sum())} duplicate unit-year rows in the panel, e.g. "
+                         f"{p[dup][['unit_code', 'year']].head(3).values.tolist()}")
     p["dukcapil_type"] = p["total_to_pop"].between(0.8, 1.25)
+    if "sources" in p.columns:
+        # percentage tables were turned into counts with the official population, so their
+        # total-to-population ratio is 1 by construction and says nothing about the source type
+        p["from_pct"] = p["sources"].astype(str).str.contains("pdf_da_pct")
+        p["dukcapil_type"] &= ~p["from_pct"]
     p["y_exact"] = p["konghucu"] / p["population"] * 1000
     p["y_ub"] = p["konghucu_ub"] / p["population"] * 1000
     for r in ["buddha", "kristen", "katolik"]:
@@ -59,13 +70,7 @@ def two_period(p: pd.DataFrame, y: str, t0: int = 2021, t1: int = 2023) -> pd.Da
     d = p[p["dukcapil_type"] & p["year"].isin([t0, t1]) & p[y].notna()]
     if y == "y_ub":
         d = d[~d["province_code"].isin(UB_EXCLUDE_PROVINCES)]
-    if "semester" in d.columns:  # half-year Dukcapil cells: keep the end-of-year one
-        d = d.sort_values(["unit_code", "year", "semester"]).drop_duplicates(["unit_code", "year"], keep="last")
-    dup = d.duplicated(["unit_code", "year"], keep=False)
-    if dup.any():  # harmonize gives one table per cell; a duplicate would be silently averaged below
-        raise ValueError(f"{int(dup.sum())} duplicate unit-year rows in the panel, e.g. "
-                         f"{d[dup][['unit_code', 'year']].head(3).values.tolist()}")
-    w = d.pivot_table(index="unit_code", columns="year", values=y)
+    w = d.pivot_table(index="unit_code", columns="year", values=y)  # load_panel guarantees one row per unit-year
     w = w.dropna(subset=[t0, t1])
     n_mixed = 0
     if y == "y_ub" and "konghucu_ub_is_lainnya" in d.columns:
@@ -121,15 +126,30 @@ def describe(p: pd.DataFrame) -> dict:
 MIN_CLUSTERS = 20  # below this, cluster-robust errors over-reject badly (analysis/size_check.py)
 
 
+def drop_collinear(X: pd.DataFrame) -> pd.DataFrame:
+    """Drop constant columns and, from the right, any column that is a linear combination
+    of the ones before it (an interaction identical to its main effect when the 'high'
+    dummy is 1 everywhere); statsmodels would otherwise return a minimum-norm solution
+    with no error and `_row` would report a meaningless split."""
+    sd, mean = X.std(numeric_only=True), X.abs().mean(numeric_only=True)
+    X = X.loc[:, sd > 1e-9 * (mean + 1)]
+    keep = []
+    for c in X.columns:
+        trial = X[keep + [c]].values.astype(float)
+        if np.linalg.matrix_rank(np.column_stack([np.ones(len(trial)), trial])) == len(keep) + 2:
+            keep.append(c)
+    return X[keep]
+
+
 def ols(y: np.ndarray, X: pd.DataFrame, cluster: Optional[pd.Series] = None, hc: str = "HC3"):
     """OLS with HC3 errors (HC1 over-rejects at n = 50), or cluster-robust errors when there
     are at least MIN_CLUSTERS clusters; with fewer clusters HC3 is used instead, since
     6-cluster errors rejected a true null 20% of the time in the size check."""
     import statsmodels.api as sm
-    sd, mean = X.std(numeric_only=True), X.abs().mean(numeric_only=True)
-    X = X.loc[:, sd > 1e-9 * (mean + 1)]  # a constant regressor (no investment at baseline) is dropped
-    Xc = sm.add_constant(X, has_constant="add")
-    m = sm.OLS(y, Xc, missing="drop")
+    ok = pd.Series(np.isfinite(np.asarray(y, dtype=float)), index=X.index) & X.notna().all(axis=1)
+    X, y = X.loc[ok], np.asarray(y, dtype=float)[ok.values]
+    Xc = sm.add_constant(drop_collinear(X), has_constant="add")
+    m = sm.OLS(y, Xc)
     if cluster is not None:
         groups = pd.factorize(cluster.loc[Xc.index].astype(str))[0]  # statsmodels wants integer group ids
         if groups.max() + 1 >= MIN_CLUSTERS:
@@ -156,7 +176,8 @@ def long_difference(tp: pd.DataFrame, inv: pd.DataFrame, inv_col: str, t0: int =
         d["d_inv"] = (d["d_inv"] > 0).astype(float)
     cols = ["d_inv", "inv_base", f"y{t0}", "log_pop"]
     if interact_high:
-        d["high"] = (d[f"y{t0}"] >= d[f"y{t0}"].median()).astype(float)
+        med = d[f"y{t0}"].median()
+        d["high"] = (d[f"y{t0}"] > (med if med > 0 else 0)).astype(float)  # above the median, or non-zero
         d["d_inv_x_high"] = d["d_inv"] * d["high"]
         cols = ["d_inv", "high", "d_inv_x_high", "inv_base", f"y{t0}", "log_pop"]
     X = d[cols].copy()
@@ -169,6 +190,11 @@ def twfe(p: pd.DataFrame, y: str, inv: pd.DataFrame, inv_col: str, years=(2019, 
     """y_it (a stock) on log(1 + cumulative investment up to t) with unit and year fixed
     effects (within transformation), SE clustered by unit."""
     d = p[p["dukcapil_type"] & p["year"].between(*years) & p[y].notna()].copy()
+    if y == "y_ub":
+        d = d[~d["province_code"].isin(UB_EXCLUDE_PROVINCES)]
+        if "konghucu_ub_is_lainnya" in d.columns:  # one definition per unit, else a source switch is a 'change'
+            mixed = d.groupby("unit_code")["konghucu_ub_is_lainnya"].transform("nunique") > 1
+            d = d[~mixed]
     iv = inv.groupby(["unit_code", "year"])[inv_col].sum().unstack("year").fillna(0)
     iv = iv.reindex(columns=range(int(iv.columns.min()), years[1] + 1), fill_value=0).cumsum(axis=1)
     cum = iv.stack().rename("inv").reset_index()
@@ -176,10 +202,15 @@ def twfe(p: pd.DataFrame, y: str, inv: pd.DataFrame, inv_col: str, years=(2019, 
     d = d.merge(cum, on=["unit_code", "year"], how="left")
     d["inv"] = np.log1p(d["inv"].fillna(0))
     d = d[d.groupby("unit_code")["year"].transform("size") >= 2]
-    # within transformation for the unit effect, year dummies for the year effect
-    for c in [y, "inv", "log_pop"]:
+    # within transformation (unit means removed) of the outcome, the regressors AND the year
+    # dummies: on an unbalanced panel raw year dummies are not orthogonal to the unit effects,
+    # and the year effect would leak into the investment coefficient
+    yd = pd.get_dummies(d["year"], prefix="yr", drop_first=True, dtype=float)
+    d = pd.concat([d, yd], axis=1)
+    cols = [y, "inv", "log_pop"] + list(yd.columns)
+    for c in cols:
         d[f"{c}_w"] = d[c] - d.groupby("unit_code")[c].transform("mean")
-    X = pd.concat([d[["inv_w", "log_pop_w"]], pd.get_dummies(d["year"], prefix="yr", drop_first=True, dtype=float)], axis=1)
+    X = d[["inv_w", "log_pop_w"] + [f"{c}_w" for c in yd.columns]]
     res = ols(d[f"{y}_w"].values, X, cluster=d["unit_code"])
     return res, d
 

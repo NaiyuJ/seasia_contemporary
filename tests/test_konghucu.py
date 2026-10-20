@@ -743,3 +743,14 @@ def test_konghucu_upper_bound_from_lainnya():
     assert panel.loc["6101", "konghucu_ub"] == 400 and panel.loc["6101", "konghucu_ub_is_lainnya"]
     assert panel.loc["6172", "konghucu_ub"] == 2316 and not panel.loc["6172", "konghucu_ub_is_lainnya"]
     assert abs(panel.loc["6101", "konghucu_ub_share_pop"] - 0.004) < 1e-9
+
+
+def test_zero_religions_are_not_a_placeholder_pattern():
+    from konghucu.harmonize import cell_quality
+    import pandas as pd
+    wide = pd.DataFrame([
+        dict(islam=95000, kristen=3000, katolik=2000, hindu=0, buddha=0, konghucu=0, kepercayaan=0),  # real Sumatra cell
+        dict(islam=100, kristen=100, katolik=100, hindu=100, buddha=100, konghucu=100, kepercayaan=0),  # placeholder
+    ])
+    q = cell_quality(wide)
+    assert q.tolist() == ["", "placeholder"]

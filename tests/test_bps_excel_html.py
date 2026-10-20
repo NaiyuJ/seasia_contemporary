@@ -29,7 +29,7 @@ def test_parse_escaped_excel_table():
     df = bps_api.parse_religion_html(_html.escape(EXCEL_HTML), "12", 2021, "bps:1200:2793")
     k = df[df["religion"] == "konghucu"].set_index("unit_name")["count"]
     assert k["Kota Medan"] == 1234 and k["__PROVINCE__"] == 2500
-    assert k["Nias"] != k["Nias"]  # NaN for '-'
+    assert k["Nias"] == 0  # a printed dash is BPS's nil, not a missing value
     assert df[(df["unit_name"] == "Kota Medan") & (df["religion"] == "total")]["count"].item() == 2206234
     assert "Sumber: Kementerian Agama" not in set(df["unit_name"])
     assert (df["year"] == 2021).all()

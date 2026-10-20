@@ -140,3 +140,89 @@ def test_size_check_runs():
     from analysis import size_check
     r = size_check.rejection_rates(reps=3, n=20, provinces=4)
     assert set(r.index) >= {"HC1", "HC3", "cluster_4"} and (r <= 1).all()
+
+
+def test_twfe_on_an_unbalanced_panel_does_not_load_the_year_effect_on_investment(tmp_path):
+    """half the units observed 2019-21, half 2021-23; investment in half of the late group; a
+    pure year effect and no investment effect. Raw year dummies would give a large positive coef."""
+    rng = np.random.default_rng(1)
+    rows, inv = [], []
+    for i in range(40):
+        code = f"{11 + i % 4}{i:02d}"
+        late = i % 2 == 1
+        pop = 200_000
+        for y in (range(2021, 2024) if late else range(2019, 2022)):
+            yr_eff = 0.5 * (y - 2019)
+            rows.append(dict(unit_code=code, year=y, population=pop, total=pop, total_to_pop=1.0,
+                             konghucu=(1 + yr_eff + rng.normal(0, 0.05)) * pop / 1000, konghucu_ub=np.nan,
+                             buddha=1, kristen=1, katolik=1, ref="da:x:y"))
+            inv.append(dict(unit_code=code, year=y, value=3000.0 if late and i % 4 == 1 and y >= 2022 else 0.0))
+    panel = pd.DataFrame(rows); panel["konghucu_ub"] = panel["konghucu"]
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    res, d = an.twfe(an.load_panel(str(tmp_path / "panel.csv")), "y_exact", pd.DataFrame(inv), "value")
+    assert abs(res.params["inv_w"]) < 0.02
+
+
+def test_twfe_upper_bound_sample_excludes_indigenous_provinces_and_mixed_definitions(tmp_path):
+    panel, inv = _panel(n=12)
+    panel["konghucu_ub_is_lainnya"] = False
+    panel["unit_code"] = panel["unit_code"].where(panel["unit_code"] != "1100", "5301")  # NTT
+    m = (panel["unit_code"] == "1201") & (panel["year"] >= 2022)
+    panel.loc[m, "konghucu_ub_is_lainnya"] = True  # definition switches mid-panel
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    p = an.load_panel(str(tmp_path / "panel.csv"))
+    _, d = an.twfe(p, "y_ub", inv, "value")
+    assert "5301" not in set(d["unit_code"]) and "1201" not in set(d["unit_code"])
+    _, d = an.twfe(p, "y_exact", inv, "value")
+    assert "5301" in set(d["unit_code"])
+
+
+def test_load_panel_collapses_semesters_and_excludes_percentage_cells(tmp_path):
+    panel, inv = _panel(n=4)
+    panel["semester"] = 0
+    panel["sources"] = "pdf_da"
+    extra = panel[(panel["unit_code"] == "1100") & (panel["year"] == 2021)].copy()
+    extra["semester"] = 2; extra["konghucu"] = 999  # end-of-year cell wins
+    panel = pd.concat([panel, extra])
+    panel.loc[panel["unit_code"] == "1201", "sources"] = "pdf_da_pct"
+    panel.to_csv(tmp_path / "panel.csv", index=False)
+    p = an.load_panel(str(tmp_path / "panel.csv"))
+    assert not p.duplicated(["unit_code", "year"]).any()
+    assert p[(p["unit_code"] == "1100") & (p["year"] == 2021)]["konghucu"].item() == 999
+    assert not p.loc[p["unit_code"] == "1201", "dukcapil_type"].any()
+
+
+def test_collinear_interaction_is_dropped_not_reported():
+    rng = np.random.default_rng(2)
+    x = rng.normal(size=60)
+    X = pd.DataFrame({"d_inv": x, "high": 1.0, "d_inv_x_high": x})
+    res = an.ols(x * 0.5 + rng.normal(size=60, scale=0.1), X)
+    assert "d_inv_x_high" not in res.params and abs(res.params["d_inv"] - 0.5) < 0.1
+    assert np.isnan(an._row("s", res, "d_inv_x_high")["coef_d_inv"])
+
+
+def test_bkpm_status_whitespace_and_bare_ambiguous_names(tmp_path):
+    from analysis import bkpm
+    codes = pd.DataFrame([
+        {"unit_code": "3204", "unit_name": "Bandung", "province_code": "32", "level": "kabupaten"},
+        {"unit_code": "3273", "unit_name": "Kota Bandung", "province_code": "32", "level": "kota"},
+        {"unit_code": "6302", "unit_name": "Kotabaru", "province_code": "63", "level": "kabupaten"},
+    ])
+    codes.to_csv(tmp_path / "codes.csv", index=False)
+    src = pd.DataFrame([
+        dict(periode="2022Q1", status_penanaman_modal="PMA ", negara="R.R. Tiongkok", provinsi="Jawa Barat",
+             kabupaten_kota="Kota Bandung", investasi_rp_juta=1, investasi_us_ribu=77, year=2022, q=1),
+        dict(periode="2022Q1", status_penanaman_modal="PMA", negara="China, Republic of", provinsi="Jawa Barat",
+             kabupaten_kota="Kota Bandung", investasi_rp_juta=1, investasi_us_ribu=5, year=2022, q=1),
+        dict(periode="2022Q1", status_penanaman_modal="PMA", negara="Tiongkok", provinsi="Jawa Barat",
+             kabupaten_kota="Bandung", investasi_rp_juta=1, investasi_us_ribu=9, year=2022, q=1),
+        dict(periode="2022Q1", status_penanaman_modal="PMA", negara="Tiongkok", provinsi="Kalimantan Selatan",
+             kabupaten_kota="Kabupaten Kota Baru", investasi_rp_juta=1, investasi_us_ribu=3, year=2022, q=1),
+    ])
+    src.to_csv(tmp_path / "src.csv", index=False)
+    logs = []
+    out = bkpm.convert(str(tmp_path / "src.csv"), str(tmp_path / "codes.csv"), log=logs.append)
+    by = out.set_index("unit_code")
+    assert by.loc["3273", "china_usd_k"] == 77 and by.loc["3273", "fdi_usd_k"] == 82  # Taiwan is FDI, not China
+    assert by.loc["3204", "china_usd_k"] == 9  # a bare 'Bandung' is the kabupaten in BPS naming, never the kota
+    assert by.loc["6302", "china_usd_k"] == 3

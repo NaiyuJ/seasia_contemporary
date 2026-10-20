@@ -118,7 +118,7 @@ RELIGIONS = ["islam", "kristen", "katolik", "hindu", "buddha", "konghucu", "kepe
 def cell_quality(wide: pd.DataFrame) -> pd.Series:
     """Label unit-year cells that cannot be used as counts, from their own values:
     'percent'   religions sum to about 100 and none exceeds 100
-    'placeholder' four or more religions carry the identical value (e.g. all 100)
+    'placeholder' four or more religions carry the identical non-zero value (e.g. all 100)
     'no_religions' only a total is reported
     'partial'   one of islam/kristen/katolik is missing, so a summed total is not a population
     '' otherwise."""
@@ -129,7 +129,10 @@ def cell_quality(wide: pd.DataFrame) -> pd.Series:
     mx = vals.max(axis=1)
     q = pd.Series("", index=wide.index)
     q[(n >= 3) & s.between(99, 101) & (mx <= 100)] = "percent"
-    same = vals.apply(lambda r: r.dropna().value_counts().max() >= 4 if r.notna().sum() >= 4 else False, axis=1)
+    # four identical NON-ZERO values (all 100, all 1); zeros are real (hindu, buddha, konghucu
+    # and kepercayaan are all 0 in much of Sumatra) and must not select cells on the outcome
+    nz = vals.where(vals != 0)
+    same = nz.apply(lambda r: r.dropna().value_counts().max() >= 4 if r.notna().sum() >= 4 else False, axis=1)
     q[(q == "") & same] = "placeholder"
     q[(q == "") & (n == 0)] = "no_religions"
     major = [c for c in MAJOR if c in wide.columns]

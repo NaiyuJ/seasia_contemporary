@@ -24,6 +24,11 @@ does not read as a fall; the regression default) and `dlog_count` (log(1+count) 
 ## Sample
 
 Only *Dukcapil-type* cells: the religion total is within 0.8 to 1.25 of the official population.
+Cells converted from percentage tables (`pdf_da_pct`) are excluded from the analysis samples:
+their total is rebuilt from the official population, so the ratio is 1 by construction and
+cannot tell a Kemenag table from a Dukcapil one, and shares printed to two decimals floor small
+Konghucu counts to zero. `load_panel` keeps one row per unit-year (the end-of-year half-year
+cell when a source is semi-annual) and refuses duplicates.
 Ministry of Religion (Kemenag) adherent counts run 1.3 to 1.8 times the population in the same
 kabupaten and count a different thing; mixing the two creates spurious jumps (see
 `konghucu_breaks.csv`). `konghucu_ref` names the table behind every cell.
@@ -61,7 +66,12 @@ every long difference.
    of the log flow, and the log flow interacted with a dummy for a baseline y at or above the
    sample median (the re-registration mechanism needs Chinese Indonesians to be there).
 2. Two-way fixed effects on the unbalanced 2019–2023 panel: y_it on log(1 + cumulative Chinese
-   investment up to t) with unit and year effects (within transformation), errors clustered by unit.
+   investment up to t) with unit and year effects, errors clustered by unit. The outcome, the
+   regressors and the year dummies are all demeaned by unit (on an unbalanced panel raw year
+   dummies are not orthogonal to the unit effects and the year trend leaks into the investment
+   coefficient; `tests/test_analysis.py` plants a pure year effect to check this). For the
+   upper-bound outcome the TWFE sample applies the same province exclusion as the long
+   difference and keeps only units with one definition (exact or Lainnya) across years.
 3. Placebos: the same long difference with Buddhist, Protestant and Catholic shares as outcomes.
    Investment that moves Konghucu registration but not Buddhism (the religion most Chinese
    Indonesians hold) is the pattern the identity argument predicts; a move in all of them points
@@ -78,6 +88,21 @@ the religion tables' normaliser; the script prints the unmatched names and their
 Units without a row are zero investment. log(1+x) because the distribution is extremely skewed
 with many zeros; run `--inv-col china_plus_hk_usd_k` and `--inv-col fdi_usd_k` (all foreign
 investment, a placebo for "it is just FDI") as further columns of the results table.
+
+## Review fixes of 2026-10-20 (results above predate them; rerun before quoting)
+
+An independent code review found, and these commits fixed: the TWFE year dummies were not
+demeaned (above); the TWFE upper-bound sample lacked the province exclusion and the
+same-definition rule; a printed dash in a BPS table was read as missing rather than zero, so
+kabupaten with no Konghucu left the exact sample (selection on the outcome); the
+`placeholder` quality rule counted four zeros as a placeholder pattern and dropped the same
+kind of cell; percentage-table cells passed the Dukcapil filter mechanically; an interaction
+collinear with its main effect would have been reported (now dropped); province-clustered
+errors with few provinces over-rejected (HC3 with a 20-cluster guard); BKPM statuses with
+stray whitespace, a bare ambiguous kabupaten name, and an empty PMDN USD column were silent.
+Still open, by design: when two sources cover a cell, the source preference can pick a table
+without a Konghucu column over one with it, so exact-sample coverage depends on which sources
+were fetched.
 
 ## Identification caveats
 

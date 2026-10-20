@@ -343,11 +343,11 @@ def parse_religion_html(html: str, province_code: str, year: Optional[int], ref:
             row_year = year_from_text(nm)
             if row_year and year and row_year != year and re.search(r"jumlah|total", nm):
                 continue  # a previous year's total row ('Jumlah 2018' in a 2019 table)
-            vals = [(j, rel, yr, parse_count(row[j]) if j < len(row) else None) for j, rel, yr in rel_cols]
+            vals = [(j, rel, yr, parse_count(row[j], dash_zero=True) if j < len(row) else None) for j, rel, yr in rel_cols]
             if sum_blocks is not None:  # male + female blocks: add the same religion across blocks
                 summed = []
                 for k, (j, rel, yr, v) in enumerate(vals):
-                    parts = [parse_count(row[blk[k][0]]) if blk[k][0] < len(row) else None for blk in sum_blocks]
+                    parts = [parse_count(row[blk[k][0]], dash_zero=True) if blk[k][0] < len(row) else None for blk in sum_blocks]
                     summed.append((j, rel, yr, sum(p for p in parts if p is not None) if any(p is not None for p in parts) else None))
                 vals = summed
             if all(v is None for *_, v in vals):
@@ -566,7 +566,7 @@ def parse_dynamic(js: dict, province_code: str, ref: str, source: str = "bpsvar"
                     rows.append({"source": source, "province_code": province_code, "unit_code": code_from_label,
                                  "unit_name": "__PROVINCE__" if is_prov else region,
                                  "year": year_from_text(th.get("label", "")), "semester": None,
-                                 "religion": rel, "count": parse_count(content[k]), "ref": ref})
+                                 "religion": rel, "count": parse_count(content[k], dash_zero=True), "ref": ref})
     df = pd.DataFrame(rows, columns=LONG_COLUMNS)
     df["level"] = df["unit_name"].map(unit_level)
     df["unit_name_norm"] = df["unit_name"].map(norm_unit_name)

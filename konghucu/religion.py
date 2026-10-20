@@ -54,12 +54,19 @@ def canonical_religion(label: object) -> Optional[str]:
     return None
 
 
-def parse_count(x: object) -> Optional[float]:
-    """Indonesian number formatting: '1.234.567' thousands, '12,5' decimal. '-' and '' -> None."""
+DASHES = {"-", "–", "—"}
+
+
+def parse_count(x: object, dash_zero: bool = False) -> Optional[float]:
+    """Indonesian number formatting: '1.234.567' thousands, '12,5' decimal. '' and '...' -> None.
+    A bare dash is BPS's printed nil: 0 with `dash_zero` (table cells), else None (so a dash
+    is not taken as a number when deciding whether a row is numeric)."""
     if x is None:
         return None
     s = str(x).strip()
-    if s in {"", "-", "–", "—", "nan", "None", "n.a.", "na", "NA", "..."}:
+    if s in DASHES:
+        return 0.0 if dash_zero else None
+    if s in {"", "nan", "None", "n.a.", "na", "NA", "..."}:
         return None
     s = re.sub(r"[^\d,\.\-]", "", s)
     if s in {"", "-"}:

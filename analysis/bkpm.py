@@ -21,7 +21,7 @@ from konghucu.harmonize import load_code_table
 from konghucu.religion import squash_unit_name, unit_level
 
 CHINA_RE = re.compile(r"(?i)^(r\.?\s?r\.?\s?)?(tiongkok|china|cina|republik rakyat (tiongkok|cina|china))\b|^r\.?\s?r\.?\s?t\.?$")
-NOT_CHINA_RE = re.compile(r"(?i)taiwan|taipei|hong\s?kong|hongkong|macau|makau")
+NOT_CHINA_RE = re.compile(r"(?i)taiwan|taipei|hong\s?kong|hongkong|macau|makau|^china,?\s+republic of")
 HK_RE = re.compile(r"(?i)hong\s?kong|hongkong")
 
 
@@ -67,9 +67,14 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
     full_code = dict(zip(full["k"], full["unit_code"]))  # 'kotabaru' == 'Kota Baru' with the prefix kept
     d["full"] = d["kabupaten_kota"].map(lambda n: norm_label(re.sub(r"(?i)^(kabupaten|kota adm\.?|kota)\s+", "", str(n))).replace(" ", ""))
 
+    kab_full = set(codes.loc[codes["level"] == "kabupaten", "unit_name"].map(lambda n: norm_label(n).replace(" ", "")))
+
     def code_of(r):
-        return (key_to_code.get((r.prov, r.lvl, r.key)) or key_prov.get((r.prov, r.key)) or nat_code.get(r.key)
-                or natl_code.get((r.lvl, r.key)) or full_code.get(r.full) or full_code.get("kota" + r.full))
+        c = (key_to_code.get((r.prov, r.lvl, r.key)) or key_prov.get((r.prov, r.key)) or nat_code.get(r.key)
+             or natl_code.get((r.lvl, r.key)) or full_code.get(r.full))
+        if c is None and r.lvl != "kabupaten" and r.full not in kab_full:
+            c = full_code.get("kota" + r.full)  # 'Kotabaru' written as 'Kota Baru'; never a bare 'Bandung'
+        return c
     pairs = d[["prov", "lvl", "key", "full"]].drop_duplicates()
     pairs["unit_code"] = pairs.apply(code_of, axis=1)
     d = d.merge(pairs, on=["prov", "lvl", "key", "full"], how="left")
@@ -79,6 +84,10 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
         log(um.head(25).to_string())
     d = d[d["unit_code"].notna()].copy()
     d["year"] = d["year"].astype(int)
+    d["status_penanaman_modal"] = d["status_penanaman_modal"].astype(str).str.strip().str.upper()
+    unknown = d.loc[~d["status_penanaman_modal"].isin(["PMA", "PMDN"]), "status_penanaman_modal"].value_counts()
+    if len(unknown):
+        log(f"rows with a status other than PMA/PMDN are ignored: {unknown.to_dict()}")
     pma = d[d["status_penanaman_modal"] == "PMA"]
     g = pma.groupby(["unit_code", "year"])
     out = pd.DataFrame({
@@ -89,6 +98,8 @@ def convert(src: str, codes_path: str, value_col: str = "investasi_us_ribu", log
     pmdn = d[d["status_penanaman_modal"] == "PMDN"].groupby(["unit_code", "year"])[value_col].sum().rename("pmdn_usd_k")
     out = out.merge(pmdn.reset_index(), on=["unit_code", "year"], how="outer").fillna(0)
     out["china_plus_hk_usd_k"] = out["china_usd_k"] + out["hk_usd_k"]
+    if out["pmdn_usd_k"].sum() == 0 and (d["status_penanaman_modal"] == "PMDN").any():
+        log(f"warning: PMDN rows carry no value in {value_col} (BKPM reports PMDN in Rp juta); pmdn_usd_k is all zero")
     return out.sort_values(["unit_code", "year"]).reset_index(drop=True)
 
 
