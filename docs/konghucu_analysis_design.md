@@ -100,9 +100,10 @@ kind of cell; percentage-table cells passed the Dukcapil filter mechanically; an
 collinear with its main effect would have been reported (now dropped); province-clustered
 errors with few provinces over-rejected (HC3 with a 20-cluster guard); BKPM statuses with
 stray whitespace, a bare ambiguous kabupaten name, and an empty PMDN USD column were silent.
-Still open, by design: when two sources cover a cell, the source preference can pick a table
-without a Konghucu column over one with it, so exact-sample coverage depends on which sources
-were fetched.
+Checked and immaterial: when two sources cover a cell, the source preference can pick a table
+without a Konghucu column over one with it; `harmonize` now counts these, and the 2026-10-20
+panel has 2 such cells (one each in 2022 and 2023). The exact-sample size is set by which
+kabupaten publish a Konghucu column at all, not by the preference order.
 
 ## Identification caveats
 
@@ -177,9 +178,10 @@ kind of cell; percentage-table cells passed the Dukcapil filter mechanically; an
 collinear with its main effect would have been reported (now dropped); province-clustered
 errors with few provinces over-rejected (HC3 with a 20-cluster guard); BKPM statuses with
 stray whitespace, a bare ambiguous kabupaten name, and an empty PMDN USD column were silent.
-Still open, by design: when two sources cover a cell, the source preference can pick a table
-without a Konghucu column over one with it, so exact-sample coverage depends on which sources
-were fetched.
+Checked and immaterial: when two sources cover a cell, the source preference can pick a table
+without a Konghucu column over one with it; `harmonize` now counts these, and the 2026-10-20
+panel has 2 such cells (one each in 2022 and 2023). The exact-sample size is set by which
+kabupaten publish a Konghucu column at all, not by the preference order.
 
 ## Identification caveats
 
