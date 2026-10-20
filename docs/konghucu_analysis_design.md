@@ -128,7 +128,7 @@ were fetched.
 
 ## Results (run of 2026-10-20 on the rebuilt panel; `data/konghucu/analysis/regressions.csv`)
 
-No specification finds an effect of investment intensity. Coefficients are the change in registered Konghucu per 1,000 residents, 2021 to 2023, per unit of Δlog(1 + thousand USD) realised in 2022 to 2023; HC3 standard errors in parentheses. Dummy rows are per 1,000 residents for kabupaten with any investment versus none; "—" marks a regressor without variation (every exact-sample kabupaten has some FDI) or an error not yet refreshed after the singleton-province fix. Run of 20 October 2026 on the rebuilt panel, `data/konghucu/analysis/regressions.csv`.
+No specification finds an effect of investment intensity. Coefficients are the change in registered Konghucu per 1,000 residents, 2021 to 2023, per unit of Δlog(1 + thousand USD) realised in 2022 to 2023; HC3 standard errors in parentheses. Dummy rows are per 1,000 residents for kabupaten with any investment versus none; "—" marks a regressor without variation (every exact-sample kabupaten has some FDI); province-FE rows drop provinces with a single sampled kabupaten. Run of 20 October 2026 on the rebuilt panel, `data/konghucu/analysis/regressions.csv`.
 
 Dukcapil-type coverage by year: 101 / 173 / 233 / 289 / 233 kabupaten in 2019–2023, of which
 43 / 108 / 91 / 106 / 70 with an exact Konghucu count. 51 exact pairs for 2021–2023; 102
@@ -138,18 +138,18 @@ dropped. BKPM names all matched a BPS code.
 | Specification | n | China | China + HK | All FDI |
 | --- | --- | --- | --- | --- |
 | Long diff, exact | 51 | 0.002 (0.023) | −0.004 (0.012) | 0.013 (0.044) |
-| + province FE | 51 | 0.013 (0.030) | 0.028 (0.059) | −0.003 (0.037) |
+| + province FE | 48 | 0.013 (0.030) | 0.028 (0.059) | −0.003 (0.037) |
 | Δlog(count) | 51 | −0.007 (0.023) | 0.007 (0.015) | 0.010 (0.036) |
 | Without Singkawang | 50 | −0.005 (0.012) | −0.007 (0.009) | 0.015 (0.012) |
 | Any-investment dummy | 51 | 0.33 (0.32) | 0.34 (0.34) | 0.38 (0.44) |
-| Dummy + province FE | 51 | 0.37 (0.41) | 0.45 (0.50) | −0.20 (0.37) |
+| Dummy + province FE | 48 | 0.37 (0.41) | 0.45 (0.50) | −0.20 (0.34) |
 | Dummy × high baseline | 51 | 0.19 (0.23) | 0.19 (0.27) | — |
 | Log flow × high baseline | 51 | −0.003 (0.018) | −0.022 (0.030) | −0.066 (0.100) |
 | TWFE 2019–2023, exact | 361 | 0.002 (0.039) | 0.017 (0.055) | 0.142 (0.119) |
 | Long diff, upper bound | 102 | 0.029 (0.018) | 0.019 (0.016) | 0.020 (0.017) |
-| + province FE | 102 | 0.042 (0.024) | 0.044 (—) | 0.025 (0.026) |
+| + province FE | 99 | 0.042 (0.024) | 0.044 (0.033) | 0.025 (0.026) |
 | Any-investment dummy | 102 | 0.30 (0.17) | 0.25 (0.15) | 0.15 (0.14) |
-| Dummy + province FE | 102 | 0.36 (0.21) | 0.36 (0.24) | 0.23 (0.21) |
+| Dummy + province FE | 99 | 0.36 (0.21) | 0.36 (0.24) | 0.23 (0.21) |
 | TWFE 2019–2023, upper bound | 567 | 0.016 (0.034) | 0.033 (0.043) | 0.086 (0.072) |
 | Placebo: Buddhist share | 132 | 0.021 (0.034) | −0.001 (0.049) | 0.007 (0.022) |
 | Placebo: Protestant share | 139 | −0.01 (0.34) | 0.48 (0.67) | 0.38 (0.62) |
