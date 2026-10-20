@@ -174,6 +174,15 @@ def build_panel(long: pd.DataFrame, prefer: Optional[list] = None, exclude_refs:
     best = df[cell + ["ref", "rank"]].drop_duplicates().merge(nrel, on=cell + ["ref"])
     best = best.sort_values(cell + ["rank", "n_rel", "ref"], ascending=[True, True, True, True, False, True])
     best = best.drop_duplicates(cell, keep="first")[cell + ["ref"]]
+    # cells where the preferred table has no Konghucu column but another candidate has one
+    has_k = df[df["religion"] == "konghucu"][cell + ["ref"]].drop_duplicates().assign(k=True)
+    chosen_k = best.merge(has_k, on=cell + ["ref"], how="left")["k"].fillna(False).astype(bool).values
+    any_k = best.merge(has_k[cell].drop_duplicates().assign(a=True), on=cell, how="left")["a"].fillna(False).astype(bool).values
+    lost = best[~chosen_k & any_k]
+    if len(lost):
+        yrs = lost.groupby("year").size().to_dict()
+        print(f"build_panel: {len(lost)} cells take a table without a Konghucu column although another "
+              f"source has one (source preference; exact count lost), by year: {yrs}")
     df = df.merge(best, on=cell + ["ref"], how="inner")
     df = df.drop_duplicates(cell + ["religion"], keep="first")
     wide = df.pivot_table(index=["unit_code", "year", "semester"], columns="religion", values="count",

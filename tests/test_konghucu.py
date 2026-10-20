@@ -754,3 +754,19 @@ def test_zero_religions_are_not_a_placeholder_pattern():
     ])
     q = cell_quality(wide)
     assert q.tolist() == ["", "placeholder"]
+
+
+def test_build_panel_reports_exact_counts_lost_to_source_preference(capsys):
+    import pandas as pd
+    from konghucu.harmonize import build_panel
+    rows = []
+    for rel, n in [("islam", 900), ("kristen", 50), ("katolik", 30), ("lainnya", 20)]:  # preferred: no konghucu
+        rows.append(dict(source="pdf_da", province_code="32", unit_code="3201", unit_name="Bogor", year=2023,
+                         semester=None, religion=rel, count=n, ref="da:3201:x"))
+    for rel, n in [("islam", 900), ("kristen", 50), ("katolik", 30), ("konghucu", 15), ("buddha", 5)]:
+        rows.append(dict(source="bps", province_code="32", unit_code="3201", unit_name="Bogor", year=2023,
+                         semester=None, religion=rel, count=n, ref="bps:3200:1"))
+    panel = build_panel(pd.DataFrame(rows))
+    out = capsys.readouterr().out
+    assert "1 cells take a table without a Konghucu column" in out
+    assert "konghucu" not in panel.columns and panel["lainnya"].item() == 20  # the yearbook row won
