@@ -65,3 +65,20 @@ def test_dalam_angka_extract_uses_cache(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(dalam_angka, "extract_book", wrong_year)
     cli.main(args[:-2] + ["--catalogue", str(tmp_path / "cat.csv"), "--no-cache"])
     assert pd.read_csv(tmp_path / "out.csv")["year"].iloc[0] == 2023
+
+
+def test_da_domains_lists_units_missing_target_years(tmp_path, capsys):
+    import pandas as pd
+    from konghucu import cli
+    rows = []
+    for u, years, k in [("6172", [2019, 2021, 2023], 10), ("3201", [2021, 2023], 5), ("3202", [2021], None), ("5301", [2021, 2023], None)]:
+        for y in years:
+            rows.append(dict(unit_code=u, year=y, konghucu=k, konghucu_ub=k if k is not None else 7, total_to_pop=1.0))
+    rows.append(dict(unit_code="1271", year=2021, konghucu=3, konghucu_ub=3, total_to_pop=1.6))  # Kemenag-type
+    pd.DataFrame(rows).to_csv(tmp_path / "panel.csv", index=False)
+    cli.main(["da-domains", "--panel", str(tmp_path / "panel.csv"), "--years", "2019", "2020"])
+    out, err = capsys.readouterr()
+    assert out.split() == ["3201", "6172"] and "2 units with a exact" in err  # 6172 has 2019 but not 2020
+    cli.main(["da-domains", "--panel", str(tmp_path / "panel.csv"), "--years", "2019", "2020", "--ub"])
+    out, err = capsys.readouterr()
+    assert out.split() == ["3201", "3202", "5301", "6172"]

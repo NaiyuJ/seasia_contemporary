@@ -432,6 +432,25 @@ def cmd_bps_population(a):
         print(dis.head(30).to_string(index=False))
 
 
+def cmd_da_domains(a):
+    """Domains (BPS 4-digit codes) worth fetching yearbooks for: units with a usable Konghucu
+    count (exact, or exact-or-Lainnya with --ub) in some base year but none in a target year.
+    Prints the codes space-separated on stdout, counts on stderr, so the output can be passed
+    straight to `bps-publications --domains`."""
+    import sys
+    p = pd.read_csv(a.panel, dtype={"unit_code": str})
+    col = "konghucu_ub" if a.ub else "konghucu"
+    ok = p[col].notna()
+    if "total_to_pop" in p.columns:  # Dukcapil-type cells only, as in the analysis
+        ok &= p["total_to_pop"].between(0.8, 1.25)
+    base = set(p.loc[ok & p["year"].isin([int(y) for y in a.base_years]), "unit_code"])
+    have_all = {u for u in base if all(((p["unit_code"] == u) & ok & (p["year"] == int(y))).any() for y in a.years)}
+    want = sorted(base - have_all)
+    print(f"{len(base)} units with a {'exact-or-Lainnya' if a.ub else 'exact'} Konghucu count in {a.base_years}; "
+          f"{len(want)} of them lack one in at least one of {a.years}", file=sys.stderr)
+    print(" ".join(want))
+
+
 def cmd_harmonize(a):
     codes = harmonize.load_code_table(a.codes)
     long = pd.concat([pd.read_csv(p, dtype={"province_code": str, "unit_code": str}) for p in a.inputs],
@@ -555,6 +574,12 @@ def build_parser():
     pb.add_argument("--out", default="data/konghucu/bps_publications.csv")
     pb.set_defaults(func=cmd_bps_publications)
 
+    dd = sp.add_parser("da-domains", help="domains whose yearbooks would extend the Konghucu panel to earlier years")
+    dd.add_argument("--panel", default="data/konghucu/religion_panel.csv")
+    dd.add_argument("--years", nargs="+", required=True, help="target DATA years, e.g. 2017 2018 2019 2020")
+    dd.add_argument("--base-years", nargs="+", default=["2021", "2022", "2023"], help="years that define the sample")
+    dd.add_argument("--ub", action="store_true", help="exact-or-Lainnya units instead of exact only")
+    dd.set_defaults(func=cmd_da_domains)
     da = sp.add_parser("dalam-angka-extract", help="religion tables out of 'Dalam Angka' PDF yearbooks")
     da.add_argument("pdfs", nargs="+")
     da.add_argument("--out", default="data/konghucu/dalam_angka_long.csv")

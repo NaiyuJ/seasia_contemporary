@@ -102,6 +102,8 @@ python -m konghucu.cli bps-population                    # official population b
 python -m konghucu.cli bps-publications --domains 6101 6102 6172 --years 2022 2023 --download data/raw/pubs
                                                          # 'Dalam Angka' PDFs for kabupaten whose religion table is not in the API
 python -m konghucu.cli dalam-angka-extract data/raw/pubs/*.pdf   # -> data/konghucu/dalam_angka_long.csv (add to harmonize --inputs)
+python -m konghucu.cli da-domains --years 2017 2018 2019 2020    # units with a Konghucu count in 2021-23 but not in these years:
+                                                         # pass to bps-publications --domains with --years 2018 2019 2020 2021 (book year = data year + 1)
 python -m konghucu.cli harmonize --codes data/raw/bps_kabupaten_codes.csv \
        --inputs data/konghucu/bps_long.csv data/konghucu/arcgis_long.csv data/konghucu/pdf_long.csv
 # harmonize also writes konghucu_breaks.csv (source-definition switches) and total_outliers.csv
